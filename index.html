@@ -1,0 +1,2583 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+		
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+		<link rel="stylesheet" type="text/css" href="http://content.sniklaus.com/content.css">
+		<script type="text/javascript" src="http://content.sniklaus.com/content.js"></script>
+	</head>
+	<body style="margin:0px auto 0px auto; max-width:980px;">
+
+<!-- ########################################################## -->
+
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script type="text/javascript" src="https://cdn.jsdelivr.net/gh/kripken/ammo.js@master/builds/ammo.js"></script>
+
+<style type="text/css">
+    #game {
+        image-rendering:optimizeSpeed;             /* Legal fallback */
+        image-rendering:-moz-crisp-edges;          /* Firefox        */
+        image-rendering:-o-crisp-edges;            /* Opera          */
+        image-rendering:-webkit-optimize-contrast; /* Safari         */
+        image-rendering:optimize-contrast;         /* CSS3 Proposed  */
+        image-rendering:crisp-edges;               /* CSS4 Proposed  */
+        image-rendering:pixelated;                 /* CSS4 Proposed  */
+        -ms-interpolation-mode:nearest-neighbor;   /* IE8+           */
+    }
+
+    #canvas {
+        height:100% !important;
+        width:100% !important;
+    }
+</style>
+
+<div class="btn-bar">
+    <a class="btn btn-primary" href="https://github.com/sniklaus/arxiv-doom">
+        <div><i class="fab fa-github"></i></div>
+        <span>GitHub</span>
+    </a>
+</div>
+
+<div class="card">
+    <div class="card-header text-white bg-primary" style="position:relative;">
+        arXiv DOOM
+    </div>
+    
+    <div class="card-body">
+        <p>This is a parody of the ever-increasing amount of papers that appear on arXiv every day, it allows you to fight the one hundred most-recent papers in the cs.CV category. It is based on an <a href="https://github.com/tomduggan85/fps-engine">engine</a> from Tom Duggan, please see the Github repository for acknowledgements on where the graphics for this game were obtained from.</p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div id="game" style="height:600px; position:relative; width:100%;">
+            <canvas id="canvas"></canvas>
+
+            <div id="weapon" style="bottom:0px; left:50%; position:absolute; transform:scale(3.0); transform-origin:50% bottom;"></div>
+
+            <div style="background-color:#FFFFFF; bottom:11px; font-size:10px; left:50%; margin:0px 0px 0px -142px; padding:0px 4px 0px 4px; position:absolute; user-select:none;">
+                use <b>wasd</b> to move, <b>1/2/3</b> to switch weapons, and <b>click</b> to shoot
+            </div>
+        </div>
+
+        <div id="papers">
+            
+        </div>
+    </div>
+</div>
+
+<script type="text/javascript">
+    const randomChoice = function(objOptions) {
+        return objOptions[Math.floor(Math.random() * objOptions.length)];
+    };
+
+
+    const randomBetween = function(fltMin, fltMax) {
+        return fltMin + (Math.random() * (fltMax - fltMin));
+    };
+
+
+    const weightedChoice = function(objOptions) {
+        let fltSum = 0.0;
+
+        for (let objOption of objOptions) {
+            fltSum += objOption.fltWeight;
+        }
+
+        let intChoice = -1;
+        let fltChoice = Math.random() * fltSum;
+
+        while (fltChoice > 0.0) {
+            intChoice += 1;
+            fltChoice -= objOptions[intChoice].fltWeight;
+        }
+
+        return objOptions[intChoice].value;
+    };
+
+
+    const multipleChoice = function(objOptions, intChoices) {
+        let objChoices = [];
+        let objCopy = objOptions.slice();
+
+        for (let intChoice = 0; intChoice < intChoices; intChoice += 1) {
+            objChoices.push(objCopy.splice(Math.floor(Math.random() * objCopy.length), 1)[0]);
+        }
+
+        return objChoices;
+    };
+
+
+    // ##########################################################
+
+
+    class Gameobject {
+        constructor(props) {
+            this.props = props;
+        }
+
+        register() {
+            State.objScene.add(this.objSceneobject);
+
+            this.objSceneobject.traverse((objSceneobject) => {
+                objSceneobject.objGameobject = this;
+            });
+
+            if (this.objPhysics !== null) {
+                let objShape = null;
+                let objInertia = new Ammo.btVector3(0.0, 0.0, 0.0);
+                let objInfo = null;
+
+                State.objAmmotransform.setIdentity();
+                State.objAmmotransform.setOrigin(new Ammo.btVector3(this.objSceneobject.position.x, this.objSceneobject.position.y, this.objSceneobject.position.z));
+                State.objAmmotransform.setRotation(new Ammo.btQuaternion(this.objSceneobject.quaternion.x, this.objSceneobject.quaternion.y, this.objSceneobject.quaternion.z, this.objSceneobject.quaternion.w));
+
+                if (this.objPhysics.strGeometry === 'box') {
+                    objShape = new Ammo.btBoxShape(new Ammo.btVector3(0.5 * this.objPhysics.fltSize[0], 0.5 * this.objPhysics.fltSize[1], 0.5 * this.objPhysics.fltSize[2]));
+
+                } else if (this.objPhysics.strGeometry === 'cylinder') {
+                    objShape = new Ammo.btCylinderShape(new Ammo.btVector3(0.5 * this.objPhysics.fltSize[0], 0.5 * this.objPhysics.fltSize[1], 0.5 * this.objPhysics.fltSize[2]));
+
+                } else if (this.objPhysics.strGeometry === 'sphere') {
+                    objShape = new Ammo.btSphereShape(this.objPhysics.fltSize[0]);
+
+                }
+
+                objShape.setMargin(0.01);
+
+                if (this.objPhysics.fltMass !== 0.0) {
+                    objShape.calculateLocalInertia(this.objPhysics.fltMass, objInertia);
+                }
+
+                objInfo = new Ammo.btRigidBodyConstructionInfo(this.objPhysics.fltMass, new Ammo.btDefaultMotionState(State.objAmmotransform), objShape, objInertia);
+                objInfo.set_m_friction(this.objPhysics.fltFriction);
+                objInfo.set_m_restitution(this.objPhysics.fltRestitution);
+
+                this.objPhysics = new Ammo.btRigidBody(objInfo);
+
+                State.objAmmoworld.addRigidBody(this.objPhysics);
+            }
+        }
+
+        remove() {
+            State.objScene.remove(this.objSceneobject);
+
+            State.objAmmoworld.removeRigidBody(this.objPhysics);
+
+            State.objGameobjects = State.objGameobjects.filter((objGameobject) => { return objGameobject !== this; });
+
+            for (let objGameobject of State.objGameobjects) {
+                if (objGameobject.props.objRoom === this) {
+                    objGameobject.remove();
+                }
+            }
+        }
+    }
+
+
+    // ##########################################################
+
+
+    class Baseroom extends Gameobject {
+        strType = 'scenery'
+
+        constructor(props) {
+            super(props);
+
+            this.strFrom = null;
+            this.fltFrom = null;
+            this.objFrom = this.props.objFrom;
+
+            this.strTo = this.props.strTo;
+            this.fltTo = null;
+            this.objTo = null;
+
+            this.fltPortalwidth = 8.0;
+            this.fltPortalheight = 6.0;
+
+            if (this.props.strRoom !== 'first') {
+                this.strFrom = 'rear';
+                this.objFrom.objTo = this;
+            }
+
+            if (this.props.strRoom !== 'first') {
+                let fltMin = 2.0;
+                let fltMax = (this.props.fltWidth) - (this.fltPortalwidth + 2.0);
+
+                if (this.objFrom.strTo === 'front') { this.fltFrom = randomBetween(fltMin, fltMax); }
+                if (this.objFrom.strTo === 'left') { this.fltFrom = fltMin; }
+                if (this.objFrom.strTo === 'right') { this.fltFrom = fltMax; }
+            }
+
+            {
+                let fltMin = 2.0;
+                let fltMax = (this.strTo !== 'front' ? this.props.fltLength : this.props.fltWidth) - (this.fltPortalwidth + 2.0);
+                
+                if (this.strTo === 'front') { this.fltTo = randomBetween(fltMin, fltMax); }
+                if (this.strTo === 'left') { this.fltTo = randomBetween(0.5 * fltMax, fltMax); }
+                if (this.strTo === 'right') { this.fltTo = randomBetween(0.5 * fltMax, fltMax); }
+            }
+
+            {
+                this.objFloortex = (this.objFrom !== null) && (Math.random() < 0.9) ? this.objFrom.objFloortex : weightedChoice([
+                    { fltWeight: 1.0, value: { strUrl: 'images/floor-01.jpg', fltScale: 4.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/floor-02.jpg', fltScale: 4.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/floor-03.jpg', fltScale: 4.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/floor-04.jpg', fltScale: 4.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/floor-05.jpg', fltScale: 4.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/floor-06.jpg', fltScale: 4.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/floor-07.jpg', fltScale: 4.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/floor-08.jpg', fltScale: 4.0 }},
+                ]);
+
+                let objTex = this.props.strRoom !== 'open' ? this.objFloortex : { strUrl: 'images/floor-dirt.jpg', fltScale: 8.0 };
+                let objMaterial = this.material(objTex.strUrl, [this.props.fltWidth / objTex.fltScale, this.props.fltLength / objTex.fltScale]);
+
+                this.objFloor = new THREE.Mesh(new THREE.BoxGeometry(this.props.fltWidth, 1.0, this.props.fltLength), objMaterial);
+                this.objFloor.position.set(0.0, 0.0, 0.0);
+
+                this.objSceneobject = this.objFloor;
+
+                this.objPhysics = { strGeometry: 'box', fltSize: [this.props.fltWidth, 1.0, this.props.fltLength], fltMass: 0.0, fltFriction: 1.0, fltRestitution: 0.0 };
+
+                if (this.props.strRoom === 'first') {
+                    this.objFloor.position.set(0.0, 0.0, 0.0);
+
+                } else if (this.props.strRoom !== 'first') {
+                    this.objSceneobject.rotation.y = this.props.intRotation * (0.5 * Math.PI);
+
+                    this.objSceneobject.updateMatrixWorld(true);
+
+                    this.objSceneobject.position.copy(this.objFrom.objSceneobject.localToWorld(this.objFrom.portal('to')).clone().sub(this.objSceneobject.localToWorld(this.portal('from'))));
+
+                }
+
+                this.objSceneobject.updateMatrixWorld(true);
+            }
+
+            {
+                this.objWalltex = (this.objFrom !== null) && (Math.random() < 0.7) ? this.objFrom.objWalltex : weightedChoice([
+                    { fltWeight: 1.0, value: { strUrl: 'images/wall-01.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/wall-02.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/wall-03.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/wall-04.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/wall-05.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/wall-06.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/wall-07.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/wall-08.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/wall-09.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/wall-10.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/wall-11.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/wall-12.jpg', fltScale: 8.0 }},
+                ]);
+
+                let fltPortals = {
+                    'left': null,
+                    'right': null,
+                    'front': null,
+                    'rear': null,
+                };
+
+                if (this.strFrom !== null) { fltPortals[this.strFrom] = this.fltFrom; }
+                if (this.strTo !== null) { fltPortals[this.strTo] = this.fltTo; }
+
+                this.addWall('left', fltPortals['left']);
+                this.addWall('right', fltPortals['right']);
+                this.addWall('front', fltPortals['front']);
+                this.addWall('rear', fltPortals['rear']);
+            }
+
+            {
+                this.objCeilingtex = (this.objFrom !== null) && (Math.random() < 0.9) ? this.objFrom.objCeilingtex : weightedChoice([
+                    { fltWeight: 1.0, value: { strUrl: 'images/ceiling-01.jpg', fltScale: 4.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/ceiling-02.jpg', fltScale: 4.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/ceiling-03.jpg', fltScale: 4.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/ceiling-04.jpg', fltScale: 4.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/ceiling-05.jpg', fltScale: 4.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/ceiling-06.jpg', fltScale: 4.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/ceiling-07.jpg', fltScale: 4.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/ceiling-08.jpg', fltScale: 4.0 }},
+                ]);
+
+                if (this.props.strRoom !== 'open') {
+                    State.addGameobject(Ceiling, {
+                        objRoom: this,
+                        objPosition: new THREE.Vector3(0.0, this.props.fltHeight + 1.0, 0.0),
+                        objRotation: new THREE.Vector3(0.0, 0.0, 0.0),
+                        objSize: new THREE.Vector3(this.props.fltWidth, 1.0, this.props.fltLength),
+                        objMaterial: this.material(this.objCeilingtex.strUrl, [this.props.fltWidth / this.objCeilingtex.fltScale, this.props.fltLength / this.objCeilingtex.fltScale], 1.0, 0.5),
+                    });
+                }
+            }
+
+            {
+                this.objDoortex = weightedChoice([
+                    { fltWeight: 1.0, value: { strUrl: 'images/door-01.jpg' }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/door-02.jpg' }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/door-03.jpg' }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/door-04.jpg' }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/door-05.jpg' }},
+                ]);
+
+                let objPosition = this.portal('to').add(new THREE.Vector3(0.0, (0.5 * this.fltPortalheight) + (0.5 * 1.0), 0.0));
+                let objRotation = new THREE.Vector3(0.0, 0.0, 0.0);
+
+                if (this.strTo === 'left') {
+                    objRotation.y = 0.5 * Math.PI;
+
+                } else if (this.strTo === 'right') {
+                    objRotation.y = -0.5 * Math.PI;
+
+                }
+
+                if ((this.props.strRoom === 'first') || (Math.random() < 0.7)) {
+                    State.addGameobject(Door, {
+                        objRoom: this,
+                        objPosition: objPosition,
+                        objRotation: objRotation,
+                        objSize: new THREE.Vector3(this.fltPortalwidth, this.fltPortalheight, 1.0),
+                        objMaterial: ['images/door-jamb.jpg', 'images/door-jamb.jpg', 'images/door-jamb.jpg', 'images/door-jamb.jpg', this.objDoortex.strUrl, this.objDoortex.strUrl].map((strTexture) => { return this.material(strTexture, [1.0, 1.0]); }),
+                    });
+                }
+            }
+
+            this.addStructures();
+            this.addDecor();
+            this.addEnemies();
+
+            this.register();
+        }
+
+        remove() {
+            this.objTo.strFrom = null;
+            this.objTo.fltFrom = null;
+            this.objTo.objFrom = null;
+
+            super.remove();
+        }
+
+        material(strTexture, fltTexture) {
+            let objTexture = new THREE.TextureLoader().load(strTexture);
+
+            objTexture.wrapS = THREE.RepeatWrapping;
+            objTexture.wrapT = THREE.RepeatWrapping;
+            objTexture.magFilter = THREE.NearestFilter;
+            objTexture.minFilter = THREE.NearestMipMapLinearFilter;
+            objTexture.repeat.set(fltTexture[0], fltTexture[1]);
+
+            return new THREE.MeshLambertMaterial({ map: objTexture });
+        }
+
+        contains(objPosition) {
+            let objBox = new THREE.Box3().setFromObject(this.objSceneobject);
+
+            if (objPosition.x < objBox.min.x) { return false; }
+            if (objPosition.x > objBox.max.x) { return false; }
+            if (objPosition.z < objBox.min.z) { return false; }
+            if (objPosition.z > objBox.max.z) { return false; }
+
+            return true;
+        }
+
+        portal(strPortal) {
+            let objPosition = new THREE.Vector3(0.0, 0.0, 0.0);
+
+            if ({'from': this.strFrom, 'to': this.strTo}[strPortal] === 'left') {
+                objPosition.x = (0.0) - (0.5 * this.props.fltWidth);
+                objPosition.y = 0.0;
+                objPosition.z = (0.5 * this.props.fltLength) - ({'from': this.fltFrom, 'to': this.fltTo}[strPortal] + (0.5 * this.fltPortalwidth));
+
+            } else if ({'from': this.strFrom, 'to': this.strTo}[strPortal] === 'right') {
+                objPosition.x = (0.5 * this.props.fltWidth) - (0.0);
+                objPosition.y = 0.0;
+                objPosition.z = (0.5 * this.props.fltLength) - ({'from': this.fltFrom, 'to': this.fltTo}[strPortal] + (0.5 * this.fltPortalwidth));
+
+            } else if ({'from': this.strFrom, 'to': this.strTo}[strPortal] === 'front') {
+                objPosition.x = ({'from': this.fltFrom, 'to': this.fltTo}[strPortal] + (0.5 * this.fltPortalwidth)) - (0.5 * this.props.fltWidth);
+                objPosition.y = 0.0;
+                objPosition.z = (0.0) - (0.5 * this.props.fltLength);
+
+            } else if ({'from': this.strFrom, 'to': this.strTo}[strPortal] === 'rear') {
+                objPosition.x = ({'from': this.fltFrom, 'to': this.fltTo}[strPortal] + (0.5 * this.fltPortalwidth)) - (0.5 * this.props.fltWidth);
+                objPosition.y = 0.0;
+                objPosition.z = (0.5 * this.props.fltLength) - (0.0);
+
+            }
+
+            return objPosition;
+        }
+
+        addWall(strDirection, fltPortal) {
+            let boolSide = (strDirection === 'left') || (strDirection === 'right');
+            let fltRoomsize = boolSide === true ? this.props.fltLength : this.props.fltWidth;
+
+            let objWalls = [];
+
+            if (fltPortal === null) {
+                objWalls.push({
+                    objPosition: new THREE.Vector3(0.0, 0.0, 0.0),
+                    objRotation: new THREE.Vector3(0.0, 0.0, 0.0),
+                    objSize: new THREE.Vector3(fltRoomsize, this.props.fltHeight, 1.0),
+                    objMaterial: this.material(this.objWalltex.strUrl, [fltRoomsize / this.objWalltex.fltScale, this.props.fltHeight / this.objWalltex.fltScale]),
+                });
+
+            } else if (fltPortal !== null) {
+                let fltLeftwidth = fltPortal;
+                let objLeftmaterial = this.material(this.objWalltex.strUrl, [fltLeftwidth / this.objWalltex.fltScale, this.props.fltHeight / this.objWalltex.fltScale]);
+
+                let fltMiddlewidth = this.fltPortalwidth;
+                let fltMiddleheight = this.props.fltHeight - this.fltPortalheight;
+                let objMiddlematerial = this.material(this.objWalltex.strUrl, [fltMiddlewidth / this.objWalltex.fltScale, fltMiddleheight / this.objWalltex.fltScale]);
+                objMiddlematerial.map.offset.set(fltLeftwidth / this.objWalltex.fltScale, this.fltPortalheight / this.objWalltex.fltScale);
+
+                let fltRightwidth = fltRoomsize - fltLeftwidth - fltMiddlewidth;
+                let objRightmaterial = this.material(this.objWalltex.strUrl, [fltRightwidth / this.objWalltex.fltScale, this.props.fltHeight / this.objWalltex.fltScale]);
+                objRightmaterial.map.offset.set((fltLeftwidth + fltMiddlewidth) / this.objWalltex.fltScale, 0.0);
+
+                let objPortaltop = this.material('images/door-jamb.jpg', [0.5 * this.fltPortalwidth, 1.0]);
+                let objPortalside = this.material('images/door-jamb.jpg', [0.5 * this.props.fltHeight, 1.0]);
+                objPortalside.map.rotation = 0.5 * Math.PI;
+
+                objWalls.push({
+                    objPosition: new THREE.Vector3((0.5 * fltLeftwidth) - (0.5 * fltRoomsize), 0.0, 0.0),
+                    objRotation: new THREE.Vector3(0.0, 0.0, 0.0),
+                    objSize: new THREE.Vector3(fltLeftwidth, this.props.fltHeight, 1.0),
+                    objMaterial: [objPortalside, objLeftmaterial, objLeftmaterial, objLeftmaterial, objLeftmaterial, objLeftmaterial],
+                });
+
+                objWalls.push({
+                    objPosition: new THREE.Vector3((0.5 * fltMiddlewidth) - (0.5 * fltRoomsize) + fltPortal, (0.5 * this.props.fltHeight) - (0.5 * fltMiddleheight), 0.0),
+                    objRotation: new THREE.Vector3(0.0, 0.0, 0.0),
+                    objSize: new THREE.Vector3(fltMiddlewidth, fltMiddleheight, 1.0),
+                    objMaterial: [objMiddlematerial, objMiddlematerial, objMiddlematerial, objPortaltop, objMiddlematerial, objMiddlematerial],
+                });
+
+                objWalls.push({
+                    objPosition: new THREE.Vector3((0.5 * fltRoomsize) - (0.5 * fltRightwidth), 0.0, 0.0),
+                    objRotation: new THREE.Vector3(0.0, 0.0, 0.0),
+                    objSize: new THREE.Vector3(fltRightwidth, this.props.fltHeight, 1.0),
+                    objMaterial: [objRightmaterial, objPortalside, objRightmaterial, objRightmaterial, objRightmaterial, objRightmaterial],
+                });
+
+            }
+
+            for (let objWall of objWalls) {
+                if (strDirection === 'left') {
+                    objWall.objPosition.z = 0.0 - objWall.objPosition.x;
+                    objWall.objPosition.y = objWall.objPosition.y + (0.5 * this.props.fltHeight) + (0.5 * 1.0);
+                    objWall.objPosition.x = (0.5 * 1.0) - (0.5 * this.props.fltWidth);
+                    objWall.objRotation.y = 0.5 * Math.PI;
+                    
+                } else if (strDirection === 'right') {
+                    objWall.objPosition.z = 0.0 - objWall.objPosition.x;
+                    objWall.objPosition.y = objWall.objPosition.y + (0.5 * this.props.fltHeight) + (0.5 * 1.0);
+                    objWall.objPosition.x = (0.5 * this.props.fltWidth) - (0.5 * 1.0);
+                    objWall.objRotation.y = -0.5 * Math.PI;
+                    
+                } else if (strDirection === 'front') {
+                    objWall.objPosition.z = (0.5 * 1.0) - (0.5 * this.props.fltLength);
+                    objWall.objPosition.y = objWall.objPosition.y + (0.5 * this.props.fltHeight) + (0.5 * 1.0);
+                    objWall.objPosition.x = objWall.objPosition.x - 0.0;
+                    
+                } else if (strDirection === 'rear') {
+                    objWall.objPosition.z = (0.5 * this.props.fltLength) - (0.5 * 1.0);
+                    objWall.objPosition.y = objWall.objPosition.y + (0.5 * this.props.fltHeight) + (0.5 * 1.0);
+                    objWall.objPosition.x = objWall.objPosition.x - 0.0;
+                    
+                }
+
+                State.addGameobject(Wall, {
+                    objRoom: this,
+                    objPosition: objWall.objPosition,
+                    objRotation: objWall.objRotation,
+                    objSize: objWall.objSize,
+                    objMaterial: objWall.objMaterial,
+                });
+            }
+        }
+
+        addStructures() {
+            let strStuctures = weightedChoice([
+                { fltWeight: 2.0, value: 'pillars' },
+                { fltWeight: 2.0, value: 'boxstack' },
+                { fltWeight: 1.0, value: 'nothing' },
+            ]);
+
+            if (strStuctures === 'pillars') {
+                this.objPillarstex = weightedChoice([
+                    { fltWeight: 1.0, value: { strUrl: 'images/pillars-01.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/pillars-02.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/pillars-03.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/pillars-04.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/pillars-05.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/pillars-06.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/pillars-07.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/pillars-08.jpg', fltScale: 8.0 }},
+                ]);
+
+                let strType = randomChoice(['cylinder', 'box']);
+                let intCols = Math.max(Math.floor(this.props.fltWidth / randomBetween(10.0, 15.0)), 1);
+                let intRows = Math.max(Math.floor(this.props.fltLength / randomBetween(10.0, 15.0)), 1);
+                let fltDiameter = randomBetween(2.0, 3.0);
+                let fltTrimsize = randomBetween(0.3, 0.5);
+
+                let objPillarmat = this.material(this.objPillarstex.strUrl, [fltDiameter / this.objPillarstex.fltScale, this.props.fltHeight / this.objPillarstex.fltScale]);
+                let objTrimmat = this.material('images/pillars-trim.jpg', [fltDiameter / this.objPillarstex.fltScale, fltTrimsize]);
+
+                for (let intCol = 0; intCol < intCols; intCol += 1) {
+                    for (let intRow = 0; intRow < intRows; intRow += 1) {
+                        let fltX = ((intCol + 1) / (intCols + 1) * this.props.fltWidth) - (0.5 * this.props.fltWidth);
+                        let fltZ = ((intRow + 1) / (intRows + 1) * this.props.fltLength) - (0.5 * this.props.fltLength);
+
+                        if (strType === 'cylinder') {
+                            State.addGameobject(Pillar, {
+                                objRoom: this,
+                                objPosition: new THREE.Vector3(fltX, 0.5 + (0.5 * this.props.fltHeight), fltZ),
+                                objRotation: new THREE.Vector3(0.0, 0.0, 0.0),
+                                objSize: new THREE.Vector3(0.5 * fltDiameter, this.props.fltHeight, 0.5 * fltDiameter),
+                                objMaterial: objPillarmat,
+                                strGeometry: strType,
+                            });
+
+                            let objTrimbottom = new THREE.Mesh(new THREE.CylinderGeometry(0.5 * (fltDiameter + fltTrimsize), 0.5 * (fltDiameter + fltTrimsize), fltTrimsize, 16), objTrimmat);
+                            objTrimbottom.position.set(fltX, 0.5 + (0.5 * fltTrimsize), fltZ);
+
+                            let objTrimtop = new THREE.Mesh(new THREE.CylinderGeometry(0.5 * (fltDiameter + fltTrimsize), 0.5 * (fltDiameter + fltTrimsize), fltTrimsize, 16), objTrimmat);
+                            objTrimtop.position.set(fltX, 0.5 + this.props.fltHeight - (0.5 * fltTrimsize), fltZ);
+
+                            this.objSceneobject.add(objTrimbottom);
+                            this.objSceneobject.add(objTrimtop);
+
+                        } else if (strType === 'box') {
+                            State.addGameobject(Pillar, {
+                                objRoom: this,
+                                objPosition: new THREE.Vector3(fltX, 0.5 + (0.5 * this.props.fltHeight), fltZ),
+                                objRotation: new THREE.Vector3(0.0, 0.0, 0.0),
+                                objSize: new THREE.Vector3(fltDiameter, this.props.fltHeight, fltDiameter),
+                                objMaterial: objPillarmat,
+                                strGeometry: strType,
+                            });
+
+                            let objTrimbottom = new THREE.Mesh(new THREE.BoxGeometry(fltDiameter + fltTrimsize, fltTrimsize, fltDiameter + fltTrimsize), objTrimmat);
+                            objTrimbottom.position.set(fltX, 0.5 + (0.5 * fltTrimsize), fltZ);
+
+                            let objTrimtop = new THREE.Mesh(new THREE.BoxGeometry(fltDiameter + fltTrimsize, fltTrimsize, fltDiameter + fltTrimsize), objTrimmat);
+                            objTrimtop.position.set(fltX, 0.5 + this.props.fltHeight - (0.5 * fltTrimsize), fltZ);
+
+                            this.objSceneobject.add(objTrimbottom);
+                            this.objSceneobject.add(objTrimtop);
+
+                        }
+                    }
+                }
+
+            } else if (strStuctures === 'boxstack') {
+                this.objBoxstacktex = weightedChoice([
+                    { fltWeight: 1.0, value: { strUrl: 'images/boxstack-01.jpg' }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/boxstack-02.jpg' }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/boxstack-03.jpg' }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/boxstack-04.jpg' }},
+                ]);
+
+                let objPositions = [
+                    { fltX: 0.25, fltY: 0.0, fltZ: 0.6 },
+                    { fltX: 0.7, fltY: 0.0, fltZ: 0.65 },
+                    { fltX: 0.4, fltY: 0.0, fltZ: 0.65 },
+                    { fltX: 0.7, fltY: 0.0, fltZ: 0.35 },
+                    { fltX: 0.25, fltY: 0.0, fltZ: 0.35 },
+                    { fltX: 0.75, fltY: 0.0, fltZ: 0.35 },
+                    { fltX: 0.4, fltY: 0.0, fltZ: 0.35 },
+                    { fltX: 0.4, fltY: 0.0, fltZ: 0.5 },
+                    { fltX: 0.6, fltY: 0.0, fltZ: 0.5 },
+                ];
+
+                let objConfigs = [{
+                    fltMinlength: 18.0,
+                    fltMinwidth: 20.0,
+                    fltMinheight: 8.0,
+                    objBoxes: [
+                        { fltX: -3.2, fltY: 2.5, fltZ: 0.0 },
+                        { fltX: 0.0, fltY: 2.5, fltZ: 0.0 },
+                        { fltX: 3.0, fltY: 2.5, fltZ: 0.0 },
+                        { fltX: -2.0, fltY: 5.5, fltZ: 0.0 },
+                        { fltX: 1.5, fltY: 5.5, fltZ: 0.0 },
+                    ],
+                }, {
+                    fltMinlength: 25.0,
+                    fltMinwidth: 25.0,
+                    fltMinheight: 8.0,
+                    objBoxes: [
+                        { fltX: -2.0, fltY: 2.5, fltZ: -3.2 },
+                        { fltX: 0.0, fltY: 2.5, fltZ: 0.0 },
+                        { fltX: 1.5, fltY: 2.5, fltZ: 3.0 },
+                        { fltX: -0.5, fltY: 5.5, fltZ: -2.0 },
+                        { fltX: 0.5, fltY: 5.5, fltZ: 1.5 },
+                    ],
+                }, {
+                    fltMinlength: 15.0,
+                    fltMinwidth: 15.0,
+                    fltMinheight: 7.0,
+                    objBoxes: [
+                        { fltX: 0.0, fltY: 2.5, fltZ: 0.0 },
+                        { fltX: 0.0, fltY: 2.5, fltZ: 0.0 },
+                    ],
+                }, {
+                    fltMinlength: 20.0,
+                    fltMinwidth: 20.0,
+                    fltMinheight: 10.0,
+                    objBoxes: [
+                        { fltX: -3.2, fltY: 2.5, fltZ: 0.0 },
+                        { fltX: 0.0, fltY: 2.5, fltZ: 0.0 },
+                        { fltX: 3.0, fltY: 2.5, fltZ: 0.0 },
+                        { fltX: -2.0, fltY: 5.5, fltZ: 0.0 },
+                        { fltX: 1.5, fltY: 5.5, fltZ: 0.0 },
+                        { fltX: 0.1, fltY: 8.5, fltZ: 0.0 },
+                    ],
+                }, {
+                    fltMinlength: 23.0,
+                    fltMinwidth: 23.0,
+                    fltMinheight: 10.0,
+                    objBoxes: [
+                        { fltX: -2.5, fltY: 2.5, fltZ: -3.2 },
+                        { fltX: 0.0, fltY: 2.5, fltZ: 0.0 },
+                        { fltX: 2.5, fltY: 2.5, fltZ: 3.0 },
+                        { fltX: -1.0, fltY: 5.5, fltZ: -2.0 },
+                        { fltX: 1.0, fltY: 5.5, fltZ: 1.5 },
+                        { fltX: 0.0, fltY: 8.5, fltZ: 0.1 },
+                    ],
+                }, {
+                    fltMinlength: 22.0,
+                    fltMinwidth: 22.0,
+                    fltMinheight: 10.0,
+                    objBoxes: [
+                        { fltX: -3.2, fltY: 2.5, fltZ: 0.0 },
+                        { fltX: 0.0, fltY: 2.5, fltZ: 0.0 },
+                        { fltX: 3.0, fltY: 2.5, fltZ: 0.0 },
+                        { fltX: -2.0, fltY: 5.5, fltZ: 0.0 },
+                        { fltX: 1.5, fltY: 5.5, fltZ: 0.0 },
+                        { fltX: -1.9, fltY: 8.5, fltZ: 0.0 },
+                        { fltX: 1.7, fltY: 8.5, fltZ: 0.0 },
+                    ],
+                }, {
+                    fltMinlength: 18.0,
+                    fltMinwidth: 20.0,
+                    fltMinheight: 7.0,
+                    objBoxes: [
+                        { fltX: -2.0, fltY: 2.5, fltZ: 0.0 },
+                        { fltX: 1.5, fltY: 2.5, fltZ: 0.0 },
+                        { fltX: -1.5, fltY: 5.5, fltZ: 0.0 },
+                        { fltX: 1.5, fltY: 5.5, fltZ: 0.0 },
+                    ],
+                }, {
+                    fltMinlength: 18.0,
+                    fltMinwidth: 20.0,
+                    fltMinheight: 7.0,
+                    objBoxes: [
+                        { fltX: -1.5, fltY: 2.5, fltZ: -1.5 },
+                        { fltX: 1.5, fltY: 2.5, fltZ: 1.5 },
+                        { fltX: -1.4, fltY: 5.5, fltZ: -1.5 },
+                        { fltX: 1.4, fltY: 5.5, fltZ: 1.4 },
+                    ],
+                }, {
+                    fltMinlength: 18.0,
+                    fltMinwidth: 18.0,
+                    fltMinheight: 7.0,
+                    objBoxes: [
+                        { fltX: -1.5, fltY: 2.5, fltZ: 0.0 },
+                        { fltX: 1.5, fltY: 2.5, fltZ: 0.0 },
+                        { fltX: 0.0, fltY: 5.5, fltZ: 0.0 },
+                    ],
+                }, {
+                    fltMinlength: 20.0,
+                    fltMinwidth: 20.0,
+                    fltMinheight: 7.0,
+                    objBoxes: [
+                        { fltX: 0.0, fltY: 2.5, fltZ: -1.5 },
+                        { fltX: 0.0, fltY: 2.5, fltZ: 1.5 },
+                        { fltX: 0.0, fltY: 5.5, fltZ: 0.0 },
+                    ],
+                }].filter((objConfig) => {
+                    return (this.props.fltLength >= objConfig.fltMinlength) && (this.props.fltWidth >= objConfig.fltMinwidth) && (this.props.fltHeight >= objConfig.fltMinheight);
+                });
+
+                let intBoxes = Math.min(randomChoice([1, 2]), objConfigs.length);
+
+                objConfigs = multipleChoice(objConfigs, intBoxes);
+
+                objPositions = multipleChoice(objPositions, intBoxes);
+
+                for (let intBox = 0; intBox < intBoxes; intBox += 1) {
+                    for (let objBox of objConfigs[intBox].objBoxes) {
+                        State.addGameobject(Box, {
+                            objRoom: this,
+                            objPosition: new THREE.Vector3(objBox.fltX + (objPositions[intBox].fltX * this.props.fltWidth) - (0.5 * this.props.fltWidth), objBox.fltY, objBox.fltZ + (objPositions[intBox].fltZ * this.props.fltLength) - (0.5 * this.props.fltLength)),
+                            objRotation: new THREE.Vector3(0.0, randomBetween(-0.5 * Math.PI, 0.5 * Math.PI), 0.0),
+                            objSize: new THREE.Vector3(3.0, 3.0, 3.0),
+                            objMaterial: this.material(this.objBoxstacktex.strUrl, [1.0, 1.0], 1.0, 0.5),
+                        });
+                    }
+                }
+
+            }
+        }
+
+        addDecor() {
+            let strDecor = weightedChoice([
+                { fltWeight: 2.0, value: 'wallribs' },
+                { fltWeight: 2.0, value: 'doortrim' },
+                { fltWeight: 1.0, value: 'nothing' },
+            ]);
+
+            if (strDecor === 'wallribs') {
+                this.objWallribtex = weightedChoice([
+                    { fltWeight: 1.0, value: { strUrl: 'images/decor-01.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/decor-02.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/decor-03.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/decor-04.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/decor-05.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/decor-06.jpg', fltScale: 8.0 }},
+                ]);
+
+                let fltWidth = randomBetween(1.0, 3.0);
+                let fltHeight = this.props.fltHeight;
+                let fltDepth = randomBetween(1.0, 3.0);
+                let fltBevelheight = randomBetween(0.5, 3.0);
+                let fltBeveldepth = randomBetween(0.0, 1.5);
+                let fltSpacing = randomBetween(2.0 * fltWidth, 10.0);
+
+                let objMaterial = this.material(this.objWallribtex.strUrl, [1.0 / this.objWallribtex.fltScale, 1.0 / this.objWallribtex.fltScale], 1.0, 0.5);
+
+                for (let strDirection of ['left', 'right', 'front', 'rear']) {
+                    if (strDirection === this.strFrom) { continue; }
+                    if (strDirection === this.strTo) { continue; }
+
+                    let boolSide = (strDirection === 'left') || (strDirection === 'right');
+                    let fltRoomsize = boolSide === true ? this.props.fltLength : this.props.fltWidth;
+                    let intRibs = Math.floor(fltRoomsize / fltSpacing);
+
+                    for (let intRib = 0; intRib < intRibs; intRib += 1) {
+                        let objShape = new THREE.Shape();
+
+                        objShape.moveTo(-0.5 * fltDepth - fltBeveldepth, 0.0);
+                        objShape.lineTo(-0.5 * fltDepth, fltBevelheight);
+                        objShape.lineTo(-0.5 * fltDepth, fltHeight - fltBevelheight);
+                        objShape.lineTo(-0.5 * fltDepth - fltBeveldepth, fltHeight);
+                        objShape.lineTo(0.5 * fltDepth + fltBeveldepth, fltHeight);
+                        objShape.lineTo(0.5 * fltDepth, fltHeight - fltBevelheight);
+                        objShape.lineTo(0.5 * fltDepth, fltBevelheight);
+                        objShape.lineTo(0.5 * fltDepth + fltBeveldepth, 0.0);
+                        objShape.moveTo(-0.5 * fltDepth - fltBeveldepth, 0.0);
+
+                        let objRib = new THREE.Mesh(new THREE.ExtrudeGeometry(objShape, { depth: fltWidth, steps: 1, bevelEnabled: false }), objMaterial);
+
+                        if (strDirection === 'left') {
+                            objRib.position.set(1.0 - (0.5 * this.props.fltWidth), 0.0, ((intRib + 1) / (intRibs + 1) * fltRoomsize) - (0.5 * fltRoomsize) - (0.5 * fltWidth));
+                            
+                        } else if (strDirection === 'right') {
+                            objRib.position.set((0.5 * this.props.fltWidth) - 1.0, 0.0, ((intRib + 1) / (intRibs + 1) * fltRoomsize) - (0.5 * fltRoomsize) - (0.5 * fltWidth));
+                            
+                        } else if (strDirection === 'front') {
+                            objRib.position.set(((intRib + 1) / (intRibs + 1) * fltRoomsize) - (0.5 * fltRoomsize) - (0.5 * fltWidth), 0.0, 1.0 - (0.5 * this.props.fltLength));
+                            objRib.rotation.y = 0.5 * Math.PI;
+                            
+                        } else if (strDirection === 'rear') {
+                            objRib.position.set(((intRib + 1) / (intRibs + 1) * fltRoomsize) - (0.5 * fltRoomsize) - (0.5 * fltWidth), 0.0, (0.5 * this.props.fltLength) - 1.0);
+                            objRib.rotation.y = -0.5 * Math.PI;
+                            
+                        }
+
+                        this.objSceneobject.add(objRib);
+                    }
+                }
+
+            } else if (strDecor === 'doortrim') {
+                this.objDoortrimtex = weightedChoice([
+                    { fltWeight: 1.0, value: { strUrl: 'images/decor-01.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/decor-02.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/decor-03.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/decor-04.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/decor-05.jpg', fltScale: 8.0 }},
+                    { fltWeight: 1.0, value: { strUrl: 'images/decor-06.jpg', fltScale: 8.0 }},
+                ]);
+
+                let fltBorder = randomBetween(0.5, 1.5);
+                let fltWidth = this.fltPortalwidth + fltBorder;
+                let fltHeight = this.fltPortalheight + fltBorder;
+                let fltDepth = randomBetween(2.5, 4.0);
+
+                let objMaterial = this.material(this.objDoortrimtex.strUrl, [1.0 / this.objDoortrimtex.fltScale, 1.0 / this.objDoortrimtex.fltScale], 1.0, 0.5);
+
+                let objShape = new THREE.Shape();
+
+                objShape.moveTo(-0.5 * fltWidth, 0.0);
+                objShape.lineTo(-0.5 * fltWidth, fltHeight);
+                objShape.lineTo(0.5 * fltWidth, fltHeight);
+                objShape.lineTo(0.5 * fltWidth, 0.0);
+                objShape.lineTo(0.5 * fltWidth - fltBorder, 0.0);
+                objShape.lineTo(0.5 * fltWidth - fltBorder, fltHeight - fltBorder);
+                objShape.lineTo(-0.5 * fltWidth + fltBorder, fltHeight - fltBorder);
+                objShape.lineTo(-0.5 * fltWidth + fltBorder, 0.0);
+                objShape.lineTo(-0.5 * fltWidth, 0.0);
+
+                let objTrim = new THREE.Mesh(new THREE.ExtrudeGeometry(objShape, { depth: fltDepth, steps: 1, bevelEnabled: false }), objMaterial)
+
+                if (this.strTo === 'left') {
+                    objTrim.position.set((0.0) - (0.5 * this.props.fltWidth) - (0.5 * fltDepth),  0.0, (0.5 * this.props.fltLength) - (this.fltTo + (0.5 * this.fltPortalwidth)));
+                    objTrim.rotation.y = 0.5 * Math.PI;
+
+                } else if (this.strTo === 'right') {
+                    objTrim.position.set((0.0) + (0.5 * this.props.fltWidth) + (0.5 * fltDepth),  0.0, (0.5 * this.props.fltLength) - (this.fltTo + (0.5 * this.fltPortalwidth)));
+                    objTrim.rotation.y = -0.5 * Math.PI;
+
+                } else if (this.strTo === 'front') {
+                    objTrim.position.set((this.fltTo + (0.5 * this.fltPortalwidth)) - (0.5 * this.props.fltWidth),  0.0, (0.0) - (0.5 * this.props.fltLength) - (0.5 * fltDepth));
+
+                }
+                
+                this.objSceneobject.add(objTrim);
+
+            }
+        }
+
+        addEnemies() {
+            let intRoompopulaton = 0;
+
+            for (let objGameobject of State.objGameobjects) {
+                if (objGameobject.props.objRoom === this) {
+                    intRoompopulaton += 1;
+                }
+            }
+
+            if ((Math.random() < 0.3) && (intRoompopulaton > 9)) {
+                return;
+            }
+
+            for (let intEnemy = 0; intEnemy < Math.round(Math.sqrt(this.props.fltWidth * this.props.fltLength) / 10.0); intEnemy += 1) {
+                let objPosition = null;
+
+                for (let intRetry = 0; intRetry < 10; intRetry += 1) {
+                    objPosition = new THREE.Vector3(randomBetween(-0.5 * this.props.fltWidth, 0.5 * this.props.fltWidth), 2.0, randomBetween(-0.5 * this.props.fltLength, 0.5 * this.props.fltLength));
+
+                    for (let objNearby of State.getGameobjectsInRange(objPosition, 1.5, null)) {
+                        if (objNearby.objGameobject.props.objRoom === this) {
+                            objPosition = null;
+                        }
+                    }
+
+                    if (objPosition !== null) { break; }
+                }
+
+                if (objPosition === null) { continue; }
+
+                State.addGameobject(randomChoice([Soldierenemy, Monsterenemy, Paperenemy, Paperenemy]), {
+                    objRoom: this,
+                    objPosition: objPosition,
+                    strInit: randomChoice(['patrolling', 'patrolling', 'guarding']),
+                });
+            }
+        }
+    }
+
+
+    class Firstroom extends Baseroom {
+        constructor(props) {
+            super({
+                ...props,
+                strRoom: 'first',
+                fltLength: 20.0,
+                fltWidth: 20.0,
+                fltHeight: 7.0,
+            });
+        }
+
+        addStructures() {
+            // ...
+        }
+
+        addDecor() {
+            // ...
+        }
+
+        addEnemies() {
+            // ...
+        }
+    }
+
+
+    class Bigroom extends Baseroom {
+        constructor(props) {
+            super({
+                ...props,
+                strRoom: 'big',
+                fltLength: randomBetween(35.0, 60.0),
+                fltWidth: randomBetween(25.0, 45.0),
+                fltHeight: randomBetween(7.0, 15.0),
+            });
+        }
+    }
+
+
+    class Smallroom extends Baseroom {
+        constructor(props) {
+            super({
+                ...props,
+                strRoom: 'small',
+                fltLength: randomBetween(20.0, 40.0),
+                fltWidth: randomBetween(15.0, 35.0),
+                fltHeight: randomBetween(7.0, 10.0),
+            });
+        }
+    }
+
+
+    class Openroom extends Baseroom {
+        constructor(props) {
+            super({
+                ...props,
+                strRoom: 'open',
+                fltLength: randomBetween(20.0, 40.0),
+                fltWidth: randomBetween(15.0, 35.0),
+                fltHeight: 13.0,
+            });
+        }
+    }
+
+
+    class Wall extends Gameobject {
+        strType = 'scenery'
+
+        constructor(props) {
+            super(props);
+
+            this.objSceneobject = new THREE.Mesh(new THREE.BoxGeometry(this.props.objSize.x, this.props.objSize.y, this.props.objSize.z), this.props.objMaterial);
+            this.objSceneobject.position.set(this.props.objPosition.x, this.props.objPosition.y, this.props.objPosition.z);
+            this.objSceneobject.rotation.set(this.props.objRotation.x, this.props.objRotation.y, this.props.objRotation.z);
+
+            this.objSceneobject.position.copy(this.props.objRoom.objSceneobject.localToWorld(this.objSceneobject.position));
+            this.objSceneobject.rotation.y += this.props.objRoom.objSceneobject.rotation.y;
+
+            this.objPhysics = { strGeometry: 'box', fltSize: [this.props.objSize.x, this.props.objSize.y, this.props.objSize.z], fltMass: 0.0, fltFriction: 1.0, fltRestitution: 0.0 };
+
+            this.register();
+        }
+    }
+
+
+    class Ceiling extends Gameobject {
+        strType = 'scenery'
+
+        constructor(props) {
+            super(props);
+
+            this.objSceneobject = new THREE.Mesh(new THREE.BoxGeometry(this.props.objSize.x, this.props.objSize.y, this.props.objSize.z), this.props.objMaterial);
+            this.objSceneobject.position.set(this.props.objPosition.x, this.props.objPosition.y, this.props.objPosition.z);
+            this.objSceneobject.rotation.set(this.props.objRotation.x, this.props.objRotation.y, this.props.objRotation.z);
+
+            this.objSceneobject.position.copy(this.props.objRoom.objSceneobject.localToWorld(this.objSceneobject.position));
+            this.objSceneobject.rotation.y += this.props.objRoom.objSceneobject.rotation.y;
+
+            this.objPhysics = { strGeometry: 'box', fltSize: [this.props.objSize.x, this.props.objSize.y, this.props.objSize.z], fltMass: 0.0, fltFriction: 1.0, fltRestitution: 0.0 };
+
+            this.register();
+        }
+    }
+
+
+    class Door extends Gameobject {
+        strType = 'scenery'
+
+        constructor(props) {
+            super(props);
+
+            this.strState = 'closed';
+
+            this.objSceneobject = new THREE.Mesh(new THREE.BoxGeometry(this.props.objSize.x, this.props.objSize.y, this.props.objSize.z), this.props.objMaterial);
+            this.objSceneobject.position.set(this.props.objPosition.x, this.props.objPosition.y, this.props.objPosition.z);
+            this.objSceneobject.rotation.set(this.props.objRotation.x, this.props.objRotation.y, this.props.objRotation.z);
+
+            this.objSceneobject.position.copy(this.props.objRoom.objSceneobject.localToWorld(this.objSceneobject.position));
+            this.objSceneobject.rotation.y += this.props.objRoom.objSceneobject.rotation.y;
+
+            this.objPhysics = { strGeometry: 'box', fltSize: [this.props.objSize.x, this.props.objSize.y, this.props.objSize.z], fltMass: 0.0, fltFriction: 0.0, fltRestitution: 0.0 };
+
+            this.register();
+
+            this.objPhysics.setCollisionFlags(2); // CF_KINEMATIC_OBJECT
+            this.objPhysics.setActivationState(4); // DISABLE_DEACTIVATION
+        }
+
+        step() {
+            if (this.objPhysics === null) {
+                return;
+            }
+
+            if (this.strState === 'closed') {
+                for (let objNearby of State.getGameobjectsInRange(this.objSceneobject.position, 5.0, ['player'])) {
+                    this.strState = 'opening';
+                }
+            }
+
+            if (this.strState === 'opening') {
+                this.objPhysics.getMotionState().getWorldTransform(State.objAmmotransform);
+
+                State.objAmmotransform.getOrigin().setY(State.objAmmotransform.getOrigin().y() + (0.008 * 16.666));
+
+                this.objPhysics.getMotionState().setWorldTransform(State.objAmmotransform);
+
+                if (State.objAmmotransform.getOrigin().y() >= this.props.objPosition.y + this.props.objSize.y - (0.5 * 1.0)) {
+                    this.strState = 'open';
+                }
+            }
+
+            if (this.strState === 'open') {
+                State.objAmmoworld.removeRigidBody(this.objPhysics); this.objPhysics = null;
+            }
+        }
+    }
+
+
+    class Pillar extends Gameobject {
+        strType = 'scenery'
+
+        constructor(props) {
+            super(props);
+
+            if (this.props.strGeometry === 'cylinder') {
+                this.objSceneobject = new THREE.Mesh(new THREE.CylinderGeometry(this.props.objSize.x, this.props.objSize.z, this.props.objSize.y, 16), this.props.objMaterial);
+                this.objSceneobject.position.set(this.props.objPosition.x, this.props.objPosition.y, this.props.objPosition.z);
+                this.objSceneobject.rotation.set(this.props.objRotation.x, this.props.objRotation.y, this.props.objRotation.z);
+
+            } else if (this.props.strGeometry === 'box') {
+                this.objSceneobject = new THREE.Mesh(new THREE.BoxGeometry(this.props.objSize.x, this.props.objSize.y, this.props.objSize.z), this.props.objMaterial);
+                this.objSceneobject.position.set(this.props.objPosition.x, this.props.objPosition.y, this.props.objPosition.z);
+                this.objSceneobject.rotation.set(this.props.objRotation.x, this.props.objRotation.y, this.props.objRotation.z);
+
+            }
+
+            this.objSceneobject.position.copy(this.props.objRoom.objSceneobject.localToWorld(this.objSceneobject.position));
+            this.objSceneobject.rotation.y += this.props.objRoom.objSceneobject.rotation.y;
+
+            this.objPhysics = { strGeometry: this.props.strGeometry, fltSize: [this.props.objSize.x, this.props.objSize.y, this.props.objSize.z], fltMass: 0.0, fltFriction: 1.0, fltRestitution: 0.0 };
+
+            this.register();
+        }
+    }
+
+
+    class Box extends Gameobject {
+        strType = 'scenery'
+
+        constructor(props) {
+            super(props);
+
+            this.objSceneobject = new THREE.Mesh(new THREE.BoxGeometry(this.props.objSize.x, this.props.objSize.y, this.props.objSize.z), this.props.objMaterial);
+            this.objSceneobject.position.set(this.props.objPosition.x, this.props.objPosition.y, this.props.objPosition.z);
+            this.objSceneobject.rotation.set(this.props.objRotation.x, this.props.objRotation.y, this.props.objRotation.z);
+
+            this.objSceneobject.position.copy(this.props.objRoom.objSceneobject.localToWorld(this.objSceneobject.position));
+            this.objSceneobject.rotation.y += this.props.objRoom.objSceneobject.rotation.y;
+
+            this.objPhysics = { strGeometry: 'box', fltSize: [this.props.objSize.x, this.props.objSize.y, this.props.objSize.z], fltMass: 1.0, fltFriction: 1.0, fltRestitution: 0.5 };
+
+            this.register();
+        }
+    }
+
+
+    // ##########################################################
+
+
+    class Player extends Gameobject {
+        strType = 'player'
+
+        constructor(props) {
+            super(props);
+
+            this.intHealth = 100;
+            this.boolRespawnable = false;
+            this.boolRespawn = false;
+
+            this.boolForward = false;
+            this.boolBackward = false;
+            this.boolLeft = false;
+            this.boolRight = false;
+            this.boolAttack = false;
+
+            this.intWeapon = null;
+            this.objWeapons = [new Shotgun(), new Machinegun(), new Rocketgun()];
+            this.weapon(0);
+
+            this.objDamageoverlay = new THREE.Mesh(new THREE.SphereGeometry(1.25, 16, 16), new THREE.MeshBasicMaterial({ color: 0xFF0000, opacity: 0.0, side: THREE.BackSide, transparent: true, visible: false }));
+            this.objDamageoverlay.position.set(0.0, 1.5, 0.0)
+            this.objDamageoverlay.renderOrder = 1000;
+
+            this.objMaterial = new THREE.MeshBasicMaterial();
+            this.objMaterial.visible = false;
+
+            this.objSceneobject = new THREE.Mesh(new THREE.SphereGeometry(1.25, 16, 16), this.objMaterial);
+            this.objSceneobject.position.set(0.0, 2.1, 0.0);
+            this.objSceneobject.add(this.objDamageoverlay);
+            this.objSceneobject.add(State.objCamera);
+
+            this.objPhysics = { strGeometry: 'sphere', fltSize: [1.25], fltMass: 1.0, fltFriction: 1.0, fltRestitution: 0.5 };
+
+            this.register();
+
+            this.objPhysics.setAngularFactor(new Ammo.btVector3(0.0, 0.0, 0.0));
+        }
+
+        step() {
+            if (this.objPhysics.getLinearVelocity().length() > 12.0) {
+                this.objPhysics.getLinearVelocity().normalize();
+                this.objPhysics.getLinearVelocity().op_mul(12.0);
+            }
+
+            if (this.intHealth !== 0) {
+                let objDirection = new THREE.Vector3(0.0, 0.0, 0.0);
+
+                if (this.boolForward === true) { objDirection.z = 1.0; }
+                if (this.boolBackward === true) { objDirection.z = -1.0; }
+                if (this.boolLeft === true) { objDirection.x = 1.0; }
+                if (this.boolRight === true) { objDirection.x = -1.0; }
+
+                this.objPhysics.applyCentralImpulse(new Ammo.btVector3(...State.objCamera.getWorldPosition(new THREE.Vector3()).clone().sub(State.objCamera.localToWorld(objDirection)).clone().multiply(new THREE.Vector3(3.0, 0.0, 3.0)).toArray()));
+                this.objPhysics.activate();
+            }
+
+            this.objWeapons[this.intWeapon].step();
+
+            if ((this.boolAttack === true) && (this.intHealth !== 0)) {
+                this.objWeapons[this.intWeapon].attack();
+            }
+
+            if (this.objDamageoverlay.material.opacity > 0.0) {
+                this.objDamageoverlay.material.opacity -= 0.02;
+
+                if (this.objDamageoverlay.material.opacity <= 0.0) {
+                    this.objDamageoverlay.material.opacity = 0.0;
+                    this.objDamageoverlay.material.visible = false;
+                }
+            }
+        }
+
+        damage(intDamage) {
+            if (this.intHealth === 0) {
+                return;
+            }
+
+            this.intHealth = Math.max(this.intHealth - intDamage, 0);
+
+            this.objDamageoverlay.material.opacity = 0.5;
+            this.objDamageoverlay.material.visible = true;
+        }
+
+        weapon(intWeapon) {
+            if (intWeapon === this.intWeapon) {
+                return; 
+            }
+
+            this.intWeapon = intWeapon;
+            this.objWeapons[this.intWeapon].equip();
+        }
+
+        respawn() {
+            this.intHealth = 100;
+            this.boolRespawnable = false;
+            this.boolRespawn = false;
+
+            this.boolForward = false;
+            this.boolBackward = false;
+            this.boolLeft = false;
+            this.boolRight = false;
+            this.boolAttack = false;
+        }
+    }
+
+
+    // ##########################################################
+
+
+    class Baseenemy extends Gameobject {
+        strType = 'enemy'
+
+        constructor(props) {
+            super(props);
+
+            this.intHealth = this.props.intHealth;
+
+            this.objDirection = new THREE.Vector3(Math.random(), 0.0, Math.random()).normalize();
+
+            this.objTexture = new THREE.TextureLoader().load(this.props.strTexture);
+            this.objTexture.magFilter = THREE.NearestFilter;
+            this.objTexture.minFilter = THREE.NearestFilter;
+            this.objTexture.repeat.set(this.props.fltTexture[0], this.props.fltTexture[1]);
+
+            this.objAnimation = new Spriteanimation({ objParent: this, objAnimations: this.props.objAnimations, objTexture: this.objTexture });
+            this.objAnimation.animation(this.props.strInit);
+
+            // this.objSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.objTexture }));
+            // this.objSprite.scale.set(2.0 * this.props.fltRadius, 2.0 * this.props.fltRadius);
+            this.objSprite = new THREE.Mesh(new THREE.PlaneGeometry(2.0 * this.props.fltRadius, 2.0 * this.props.fltRadius), new THREE.MeshBasicMaterial({ map: this.objTexture, transparent: true }));
+
+            this.objMaterial = new THREE.MeshBasicMaterial();
+            this.objMaterial.visible = false;
+
+            this.objSceneobject = new THREE.Mesh(new THREE.SphereGeometry(this.props.fltRadius, 16, 16), this.objMaterial);
+            this.objSceneobject.position.set(this.props.objPosition.x, this.props.objPosition.y, this.props.objPosition.z);
+            this.objSceneobject.add(this.objSprite);
+
+            this.objSceneobject.position.copy(this.props.objRoom.objSceneobject.localToWorld(this.objSceneobject.position));
+            this.objSceneobject.rotation.y += this.props.objRoom.objSceneobject.rotation.y;
+
+            this.objPhysics = { strGeometry: 'sphere', fltSize: [this.props.fltRadius], fltMass: 1.0, fltFriction: 1.0, fltRestitution: 0.5 };
+
+            this.register();
+
+            this.objPhysics.setAngularFactor(new Ammo.btVector3(0.0, 0.0, 0.0));
+        }
+
+        step() {
+            this.objSprite.lookAt(new THREE.Vector3(State.objPlayer.objSceneobject.position.x, this.props.fltRadius, State.objPlayer.objSceneobject.position.z));
+
+            if (this.objPhysics === null) {
+                return;
+            }
+
+            this.objAnimation.step();
+
+            if ((this.objAnimation.boolDone === true) && (this.objAnimation.strName === 'dying')) {
+                if (this.objPhysics.getLinearVelocity().length() < 0.001) {
+                    State.objAmmoworld.removeRigidBody(this.objPhysics); this.objPhysics = null;
+                }
+            }
+
+            if ((this.objAnimation.strName !== 'hurting') && (this.objAnimation.strName !== 'dying')) {
+                if (this.objPhysics.getLinearVelocity().length() > this.props.fltSpeed) {
+                    this.objPhysics.getLinearVelocity().normalize();
+                    this.objPhysics.getLinearVelocity().op_mul(this.props.fltSpeed);
+                }
+            }
+
+            if (this.objAnimation.strName === 'dying') {
+                return;
+            }
+
+            if ((this.objAnimation.strName === 'chasing') || (this.objAnimation.strName === 'attacking')) {
+                this.facePlayer();
+            }
+
+            if ((this.objAnimation.strName === 'patrolling') || (this.objAnimation.strName === 'chasing')) {
+                this.objPhysics.applyCentralImpulse(new Ammo.btVector3(...this.objDirection.clone().multiply(new THREE.Vector3(3.0, 0.0, 3.0)).toArray()));
+                this.objPhysics.activate();
+            }
+
+            if (this.objAnimation.boolDone === false) {
+                return;
+            }
+
+            if ((this instanceof Paperenemy) === false) {
+                if (State.objPlayer.intHealth !== 0) {
+                    let boolSpotted = false;
+                    let objDirection = State.objPlayer.objSceneobject.position.clone().sub(this.objSceneobject.position).normalize();
+                    let fltAngle = ((Math.atan2(objDirection.x, objDirection.z) - Math.atan2(this.objDirection.x, this.objDirection.z)) * (180.0 / Math.PI));
+
+                    if (Math.abs(fltAngle) < 90.0) {
+                        let objOrigin = this.objSceneobject.position;
+                        let objDirection = State.objPlayer.objSceneobject.position.clone().sub(objOrigin).normalize();
+                        let objRaycast = new THREE.Raycaster(objOrigin, objDirection, 0.0, 30.0); objRaycast.camera = State.objCamera;
+                        let objHit = State.getGameobjectInRay(objRaycast, ['enemy', 'projectile', 'effect'], true, ['player']);
+
+                        boolSpotted = (objHit !== null);
+                    }
+
+                    if ((boolSpotted === true) || (this.objAnimation.strName === 'dying')) {
+                        if (this.objSceneobject.position.distanceToSquared(State.objPlayer.objSceneobject.position) < Math.pow(15.0, 2)) {
+                            this.objAnimation.animation('attacking');
+
+                        } else if (this.objSceneobject.position.distanceToSquared(State.objPlayer.objSceneobject.position) < Math.pow(30.0, 2)) {
+                            this.objAnimation.animation('chasing');
+
+                        }
+                    }
+                }
+            }
+
+            if (this.objAnimation.strName === 'patrolling') {
+                this.objAnimation.animation('patrolling');
+
+                for (let intRetry = 0; intRetry < 10; intRetry += 1) {
+                    this.objDirection.applyEuler(new THREE.Euler(0.0, randomBetween(-0.5 * Math.PI, 0.5 * Math.PI), 0.0));
+
+                    let objRaycast = new THREE.Raycaster(this.objSceneobject.position, this.objDirection, 0.0, this.props.fltRadius + 3.0); objRaycast.camera = State.objCamera;
+                    let objHit = State.getGameobjectInRay(objRaycast, ['enemy', 'projectile', 'effect'], true, ['player', 'scenery']);
+
+                    if (objHit === null) { break; }
+                }
+
+            } else if (this.objAnimation.strName === 'guarding') {
+                this.objAnimation.animation('guarding');
+
+            } else if (this.objAnimation.strName === 'chasing') {
+                this.objAnimation.animation('chasing');
+
+                this.facePlayer();
+
+            } else if (this.objAnimation.strName === 'attacking') {
+                this.objAnimation.animation('attacking');
+
+                this.facePlayer();
+
+            }
+
+            if ((State.objPlayer.intHealth === 0) && (this.objAnimation.strName === 'attacking')) {
+                this.objAnimation.animation('guarding');
+            }
+        }
+
+        damage(intDamage) {
+            if (this.intHealth === 0) {
+                return;
+            }
+
+            this.intHealth = Math.max(this.intHealth - intDamage, 0);
+
+            this.facePlayer();
+
+            if (this.intHealth === 0) {
+                this.objAnimation.animation('dying');
+
+            } else if (this.intHealth !== 0) {
+                this.objAnimation.animation('hurting');
+
+            }
+        }
+
+        facePlayer() {
+            this.objDirection.set(State.objPlayer.objSceneobject.position.x - this.objSceneobject.position.x, 0.0, State.objPlayer.objSceneobject.position.z - this.objSceneobject.position.z).normalize();
+        }
+    }
+
+
+    class Soldierenemy extends Baseenemy {
+        constructor(props) {
+            super({
+                ...props,
+                strTexture: 'images/soldierenemy.png',
+                fltTexture: [1.0 / 8.0, 1.0 / 8.0],
+                fltRadius: 1.5,
+                fltSpeed: 2.0,
+                intHealth: 15,
+                objAnimations: {
+                    'patrolling': {
+                        intDuration: Math.round(650 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 1.0 / 8.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 7.0 / 8.0 },
+                            { fltU: 0.0, fltV: 6.0 / 8.0 },
+                            { fltU: 0.0, fltV: 5.0 / 8.0 },
+                            { fltU: 0.0, fltV: 4.0 / 8.0 },
+                        ],
+                    },
+                    'guarding': {
+                        intDuration: Math.round(650 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 1.0 / 8.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 3.0 / 8.0 },
+                        ],
+                    },
+                    'chasing': {
+                        intDuration: Math.round(650 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 1.0 / 8.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 7.0 / 8.0 },
+                            { fltU: 0.0, fltV: 6.0 / 8.0 },
+                            { fltU: 0.0, fltV: 5.0 / 8.0 },
+                            { fltU: 0.0, fltV: 4.0 / 8.0 },
+                        ],
+                    },
+                    'attacking': {
+                        intDuration: Math.round(1400 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 1.0 / 8.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 2.0 / 8.0 },
+                            { fltU: 0.0, fltV: 3.0 / 8.0 },
+                            { fltU: 0.0, fltV: 3.0 / 8.0 },
+                            { fltU: 0.0, fltV: 3.0 / 8.0 },
+                        ],
+                    },
+                    'hurting': {
+                        intDuration: Math.round(400 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 1.0 / 8.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 1.0 / 8.0 },
+                        ],
+                    },
+                    'dying': {
+                        intDuration: Math.round(400 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 0.0,
+                        objFrames: [
+                            { fltU: 0.0 / 8.0, fltV: 0.0 / 8.0 },
+                            { fltU: 1.0 / 8.0, fltV: 0.0 / 8.0 },
+                            { fltU: 2.0 / 8.0, fltV: 0.0 / 8.0 },
+                            { fltU: 3.0 / 8.0, fltV: 0.0 / 8.0 },
+                            { fltU: 4.0 / 8.0, fltV: 0.0 / 8.0 },
+                        ],
+                    },
+                }
+            });
+        }
+
+        step() {
+            super.step();
+
+            if ((this.objAnimation.strName === 'attacking') && (this.objAnimation.intElapsed === 0)) {
+                let fltPercentage = Math.max(Math.min((this.objSceneobject.position.distanceToSquared(State.objPlayer.objSceneobject.position) - 90.0) / (320.0 - 90.0), 1.0), 0.0);
+                let fltHitchance = 0.9 + (fltPercentage * (0.5 - 0.9));
+                let fltMovingtarget = State.objPlayer.objPhysics.getLinearVelocity().length() > 1.0 ? 0.1 : 0.0;
+
+                if (Math.random() < fltHitchance - fltMovingtarget) {
+                    State.objPlayer.damage(5);
+                }
+            }
+        }
+    }
+
+
+    class Monsterenemy extends Baseenemy {
+        constructor(props) {
+            super({
+                ...props,
+                strTexture: 'images/monsterenemy.png',
+                fltTexture: [1.0 / 8.0, 1.0 / 9.0],
+                fltRadius: 1.6,
+                fltSpeed: 2.0,
+                intHealth: 15,
+                objAnimations: {
+                    'patrolling': {
+                        intDuration: Math.round(600 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 1.0 / 8.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 8.0 / 9.0 },
+                            { fltU: 0.0, fltV: 7.0 / 9.0 },
+                            { fltU: 0.0, fltV: 6.0 / 9.0 },
+                            { fltU: 0.0, fltV: 5.0 / 9.0 },
+                        ],
+                    },
+                    'guarding': {
+                        intDuration: Math.round(600 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 1.0 / 8.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 7.0 / 9.0 },
+                        ],
+                    },
+                    'chasing': {
+                        intDuration: Math.round(600 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 1.0 / 8.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 8.0 / 9.0 },
+                            { fltU: 0.0, fltV: 7.0 / 9.0 },
+                            { fltU: 0.0, fltV: 6.0 / 9.0 },
+                            { fltU: 0.0, fltV: 5.0 / 9.0 },
+                        ],
+                    },
+                    'attacking': {
+                        intDuration: Math.round(1200 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 1.0 / 8.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 4.0 / 9.0 },
+                            { fltU: 0.0, fltV: 3.0 / 9.0 },
+                            { fltU: 0.0, fltV: 2.0 / 9.0 },
+                            { fltU: 0.0, fltV: 3.0 / 9.0 },
+                            { fltU: 0.0, fltV: 3.0 / 9.0 },
+                            { fltU: 0.0, fltV: 3.0 / 9.0 },
+                            { fltU: 0.0, fltV: 3.0 / 9.0 },
+                            { fltU: 0.0, fltV: 3.0 / 9.0 },
+                        ],
+                    },
+                    'hurting': {
+                        intDuration: Math.round(400 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 1.0 / 8.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 1.0 / 9.0 },
+                        ],
+                    },
+                    'dying': {
+                        intDuration: Math.round(400 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 0.0,
+                        objFrames: [
+                            { fltU: 0.0 / 8.0, fltV: 0.0 / 9.0 },
+                            { fltU: 1.0 / 8.0, fltV: 0.0 / 9.0 },
+                            { fltU: 2.0 / 8.0, fltV: 0.0 / 9.0 },
+                            { fltU: 3.0 / 8.0, fltV: 0.0 / 9.0 },
+                            { fltU: 4.0 / 8.0, fltV: 0.0 / 9.0 },
+                        ],
+                    },
+                }
+            });
+        }
+
+        step() {
+            super.step();
+
+            if ((this.objAnimation.strName === 'attacking') && (this.objAnimation.intElapsed === Math.round(300 / 16.666))) {
+                State.addGameobject(Fireballprojectile, {
+                    objPosition: this.objSceneobject.position.clone().add(this.objDirection.clone().multiplyScalar(2.0)),
+                    objDirection: this.objDirection.clone(),
+                });
+            }
+        }
+    }
+
+
+    class Paperenemy extends Baseenemy {
+        constructor(props) {
+            super({
+                ...props,
+                strTexture: 'papers/' + randomChoice(objPapers).strIdent + '.png',
+                fltTexture: [1.0 / 18.0, 1.0 / 2.0],
+                fltRadius: 1.7,
+                fltSpeed: 2.0,
+                intHealth: 15,
+                objAnimations: {
+                    'patrolling': {
+                        intDuration: Math.round(600 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 1.0 / 18.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 1.0 / 2.0 },
+                        ],
+                    },
+                    'guarding': {
+                        intDuration: Math.round(600 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 1.0 / 18.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 1.0 / 2.0 },
+                        ],
+                    },
+                    'chasing': {
+                        intDuration: Math.round(600 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 1.0 / 18.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 1.0 / 2.0 },
+                        ],
+                    },
+                    'attacking': {
+                        intDuration: Math.round(1200 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 1.0 / 18.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 1.0 / 2.0 },
+                        ],
+                    },
+                    'hurting': {
+                        intDuration: Math.round(400 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 1.0 / 18.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 1.0 / 2.0 },
+                        ],
+                    },
+                    'dying': {
+                        intDuration: Math.round(400 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 0.0,
+                        objFrames: [
+                            { fltU: 0.0 / 18.0, fltV: 0.0 / 2.0 },
+                            { fltU: 0.0 / 18.0, fltV: 0.0 / 2.0 },
+                            { fltU: 0.0 / 18.0, fltV: 0.0 / 2.0 },
+                            { fltU: 0.0 / 18.0, fltV: 0.0 / 2.0 },
+                            { fltU: 0.0 / 18.0, fltV: 0.0 / 2.0 },
+                            { fltU: 1.0 / 18.0, fltV: 0.0 / 2.0 },
+                            { fltU: 2.0 / 18.0, fltV: 0.0 / 2.0 },
+                            { fltU: 3.0 / 18.0, fltV: 0.0 / 2.0 },
+                            { fltU: 4.0 / 18.0, fltV: 0.0 / 2.0 },
+                            { fltU: 5.0 / 18.0, fltV: 0.0 / 2.0 },
+                        ],
+                    },
+                }
+            });
+
+            this.objPaper = objPapers.filter((objPaper) => { return objPaper.strIdent === this.props.strTexture.split('papers/')[1].split('.png')[0]; })[0];
+        }
+
+        step() {
+            super.step();
+
+            if (this.objAnimation.strName === 'dying') {
+                if (this.objPaper !== null) {
+                    jQuery('#papers')
+                        .prepend(jQuery('<div></div>')
+                            .css({
+                                'margin': '1.25rem 0px 0px 0px',
+                                'min-height': '137px'
+                            })
+                            .append(jQuery('<a></a>')
+                                .attr({
+                                    'href': 'https://arxiv.org/abs/' + this.objPaper.strIdent
+                                })
+                                .css({
+                                    'background': 'url(papers/' + this.objPaper.strIdent + '.png) -16px 0px',
+                                    'border': '1px solid #CCCCCC',
+                                    'height': '137px',
+                                    'position': 'absolute',
+                                    'width': '106px'
+                                })
+                            )
+                            .append(jQuery('<p></p>')
+                                .css({
+                                    'margin': '0px 0px 0px 106px',
+                                    'padding': '0px 0px 0px 1.25rem'
+                                })
+                                .append(jQuery('<div></div>')
+                                    .css({
+                                        'font-weight': 'bolder',
+                                        'overflow': 'hidden',
+                                        'text-overflow': 'ellipsis',
+                                        'white-space': 'nowrap'
+                                    })
+                                    .text(this.objPaper.strTitle)
+                                )
+                                .append(jQuery('<div></div>')
+                                    .css({
+                                        'overflow': 'hidden',
+                                        'text-overflow': 'ellipsis',
+                                        'white-space': 'nowrap'
+                                    })
+                                    .text(this.objPaper.strAuthors)
+                                )
+                                .append(jQuery('<div></div>')
+                                    .css({
+                                        'font-size': '11px',
+                                        'margin': '7px 0px 0px 0px',
+                                        'text-align': 'justify'
+                                    })
+                                    .text(this.objPaper.strSummary)
+                                )
+                            )
+                        )
+                    ;
+
+                    this.objPaper = null;
+                }
+            }
+        }
+    }
+
+
+    // ##########################################################
+
+
+    class Baseweapon {
+        constructor(props) {
+            this.props = props;
+
+            this.objAnimation = new Webanimation({ objParent: null, objAnimations: this.props.objAnimations, strTexture: this.props.strTexture, objElement: document.getElementById('weapon') });
+            this.objAnimation.animation('default');
+        }
+
+        step() {
+            this.objAnimation.step();
+
+            if ((this.objAnimation.boolDone === true) && (this.objAnimation.strName !== 'default')) {
+                this.objAnimation.animation('default');
+            }
+        }
+
+        equip() {
+            this.objAnimation.animation('equipping');
+        }
+
+        attack() {
+            if ((this.objAnimation.boolDone === true) || (this.objAnimation.strName === 'default')) {
+                this.objAnimation.animation('attacking');
+
+                this.performAttack();
+
+                for (let objNearby of State.getGameobjectsInRange(State.objPlayer.objSceneobject.position, this.props.fltNoticerange, ['enemy'])) {
+                    objNearby.objGameobject.facePlayer();
+                }
+            }
+        }
+
+        shootBullet(intCount, intDamage, fltSpread=0.0) {
+            for (let intBullet = 0; intBullet < intCount; intBullet += 1) {
+                let objCoords = new THREE.Vector2(randomBetween(-0.5 * fltSpread, 0.5 * fltSpread), randomBetween(-0.5 * fltSpread, 0.5 * fltSpread) * State.fltAspect);
+                let objRaycast = new THREE.Raycaster(); objRaycast.setFromCamera(objCoords, State.objCamera);
+                let objHit = State.getGameobjectInRay(objRaycast, ['player', 'projectile', 'effect'], true, ['scenery', 'enemy']);
+
+                if (objHit === null) {
+                    continue;
+                }
+
+                if (objHit.objGameobject.damage !== undefined) {
+                    objHit.objGameobject.damage(intDamage);
+                }
+
+                if (objHit.objGameobject.objPhysics !== null) {
+                    objHit.objGameobject.objPhysics.applyCentralImpulse(new Ammo.btVector3(...objHit.objPoint.clone().sub(State.objPlayer.objSceneobject.position).normalize().clone().multiplyScalar(3.0).toArray()));
+                    objHit.objGameobject.objPhysics.activate();
+                }
+
+                let objEffect = objHit.objGameobject.strType === 'enemy' ? Bloodeffect : Sparkseffect;
+                let intEffects = objHit.objGameobject.strType === 'enemy' ? 3 : 1;
+
+                for (let intEffect = 0; intEffect < intEffects; intEffect += 1) {
+                    let objPosition = objHit.objPoint.clone().sub(objHit.objPoint.clone().sub(State.objPlayer.objSceneobject.position).normalize().clone().multiplyScalar(1.0));
+
+                    if (intEffect > 0) { objPosition.add(new THREE.Vector3(randomBetween(-0.25, 0.25), randomBetween(-0.25, 0.25), randomBetween(-0.25, 0.25))); }
+
+                    State.addGameobject(objEffect, {
+                        objPosition: objPosition,
+                    });
+                }
+            }
+        }
+
+        shootProjectile(objProjectile) {
+            let objDirection = State.objCamera.getWorldPosition(new THREE.Vector3()).clone().sub(State.objCamera.localToWorld(new THREE.Vector3(0.0, 0.0, 1.0)));
+            let objPosition = State.objPlayer.objSceneobject.position.clone().add(objDirection.clone().multiplyScalar(2.0));
+
+            State.addGameobject(objProjectile, {
+                objPosition: objPosition,
+                objDirection: objDirection,
+            });
+        }
+    }
+
+
+    class Shotgun extends Baseweapon {
+        constructor(props) {
+            super({
+                ...props,
+                strTexture: 'images/shotgun.png',
+                fltNoticerange: 60.0,
+                objAnimations: {
+                    'default': {
+                        intDuration: Math.round(1000 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 0.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 0.0, intWidth: 73, intHeight: 110 },
+                        ],
+                    },
+                    'attacking': {
+                        intDuration: Math.round(800 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 0.0,
+                        objFrames: [
+                            { fltU: 73.0, fltV: 0.0, intWidth: 73, intHeight: 110 },
+                            { fltU: 146.0, fltV: 0.0, intWidth: 73, intHeight: 110 },
+                            { fltU: 219.0, fltV: 0.0, intWidth: 146, intHeight: 110 },
+                            { fltU: 365.0, fltV: 0.0, intWidth: 183, intHeight: 110 },
+                            { fltU: 548.0, fltV: 0.0, intWidth: 259, intHeight: 110 },
+                            { fltU: 807.0, fltV: 0.0, intWidth: 229, intHeight: 110 },
+                            { fltU: 1036.0, fltV: 0.0, intWidth: 326, intHeight: 110 },
+                            { fltU: 807.0, fltV: 0.0, intWidth: 229, intHeight: 110 },
+                            { fltU: 548.0, fltV: 0.0, intWidth: 259, intHeight: 110 },
+                            { fltU: 365.0, fltV: 0.0, intWidth: 183, intHeight: 110 },
+                            { fltU: 219.0, fltV: 0.0, intWidth: 146, intHeight: 110 },
+                        ],
+                    },
+                    'equipping': {
+                        intDuration: Math.round(300 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 0.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 0.0, intWidth: 73, intHeight: 0 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 73, intHeight: 15 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 73, intHeight: 30 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 73, intHeight: 45 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 73, intHeight: 60 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 73, intHeight: 75 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 73, intHeight: 90 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 73, intHeight: 100 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 73, intHeight: 110 },
+                        ],
+                    },
+                },
+            });
+        }
+
+        performAttack() {
+            this.shootBullet(6, 5, 0.15);
+        }
+    }
+
+
+    class Machinegun extends Baseweapon {
+        constructor(props) {
+            super({
+                ...props,
+                strTexture: 'images/machinegun.png',
+                fltNoticerange: 60.0,
+                objAnimations: {
+                    'default': {
+                        intDuration: Math.round(1000 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 0.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 0.0, intWidth: 273, intHeight: 125 },
+                        ],
+                    },
+                    'attacking': {
+                        intDuration: Math.round(50 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 0.0,
+                        objFrames: [
+                            { fltU: 273.0, fltV: 0.0, intWidth: 273, intHeight: 125 },
+                            { fltU: 546.0, fltV: 0.0, intWidth: 273, intHeight: 125 },
+                        ],
+                    },
+                    'equipping': {
+                        intDuration: Math.round(300 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 0.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 0.0, intWidth: 273, intHeight: 55 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 273, intHeight: 65 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 273, intHeight: 75 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 273, intHeight: 85 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 273, intHeight: 95 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 273, intHeight: 105 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 273, intHeight: 115 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 273, intHeight: 125 },
+                        ],
+                    },
+                },
+            });
+        }
+
+        performAttack() {
+            this.shootBullet(1, 5, 0.2);
+        }
+    }
+
+
+    class Rocketgun extends Baseweapon {
+        constructor(props) {
+            super({
+                ...props,
+                strTexture: 'images/rocketgun.png',
+                fltNoticerange: 80.0,
+                objAnimations: {
+                    'default': {
+                        intDuration: Math.round(1000 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 0.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 0.0, intWidth: 186, intHeight: 105 },
+                        ],
+                    },
+                    'attacking': {
+                        intDuration: Math.round(500 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 0.0,
+                        objFrames: [
+                            { fltU: 186.0, fltV: 0.0, intWidth: 186, intHeight: 105 },
+                            { fltU: 372.0, fltV: 0.0, intWidth: 186, intHeight: 105 },
+                            { fltU: 558.0, fltV: 0.0, intWidth: 186, intHeight: 105 },
+                            { fltU: 744.0, fltV: 0.0, intWidth: 186, intHeight: 105 },
+                            { fltU: 930.0, fltV: 0.0, intWidth: 186, intHeight: 105 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 186, intHeight: 105 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 186, intHeight: 105 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 186, intHeight: 105 },
+                        ],
+                    },
+                    'equipping': {
+                        intDuration: Math.round(300 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 0.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 0.0, intWidth: 186, intHeight: 25 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 186, intHeight: 35 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 186, intHeight: 45 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 186, intHeight: 55 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 186, intHeight: 65 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 186, intHeight: 75 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 186, intHeight: 85 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 186, intHeight: 95 },
+                            { fltU: 0.0, fltV: 0.0, intWidth: 186, intHeight: 105 },
+                        ],
+                    },
+                },
+            });
+        }
+
+        performAttack() {
+            this.shootProjectile(Rocketprojectile);
+        }
+    }
+
+
+    // ##########################################################
+
+
+    class Baseprojectile extends Gameobject {
+        strType = 'projectile'
+
+        constructor(props) {
+            super(props);
+
+            this.objDirection = this.props.objDirection;
+
+            this.objTexture = new THREE.TextureLoader().load(this.props.strTexture);
+            this.objTexture.magFilter = THREE.NearestFilter;
+            this.objTexture.minFilter = THREE.NearestFilter;
+            this.objTexture.repeat.set(this.props.fltTexture[0], this.props.fltTexture[1]);
+
+            this.objAnimation = new Spriteanimation({ objParent: this, objAnimations: this.props.objAnimations, objTexture: this.objTexture });
+            this.objAnimation.animation('default');
+
+            this.objSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.objTexture }));
+            this.objSprite.scale.set(2.0 * this.props.fltRadius, 2.0 * this.props.fltRadius);
+
+            this.objMaterial = new THREE.MeshBasicMaterial();
+            this.objMaterial.visible = false;
+
+            this.objSceneobject = new THREE.Mesh(new THREE.SphereGeometry(this.props.fltRadius, 16, 16), this.objMaterial);
+            this.objSceneobject.position.set(this.props.objPosition.x, this.props.objPosition.y, this.props.objPosition.z);
+            this.objSceneobject.add(this.objSprite);
+
+            this.objPhysics = { strGeometry: 'sphere', fltSize: [this.props.fltRadius], fltMass: 1.0, fltFriction: 1.0, fltRestitution: 0.5 };
+
+            this.register();
+
+            this.objPhysics.setGravity(new Ammo.btVector3(0.0, 0.0, 0.0));
+            this.objPhysics.getLinearVelocity().setValue(...this.objDirection.clone().multiplyScalar(this.props.fltSpeed).toArray());
+        }
+
+        step() {
+            this.objAnimation.step();
+
+            if (this.objVelocity === undefined) {
+                this.objVelocity = { fltX: this.objPhysics.getLinearVelocity().x(), fltY: this.objPhysics.getLinearVelocity().y(), fltZ: this.objPhysics.getLinearVelocity().z() };
+            }
+
+            if ((this.objPhysics.getLinearVelocity().x() !== this.objVelocity.fltX) || (this.objPhysics.getLinearVelocity().y() !== this.objVelocity.fltY) || (this.objPhysics.getLinearVelocity().z() !== this.objVelocity.fltZ)) {
+                this.collision(); this.remove();
+            }
+        }
+    }
+
+
+    class Fireballprojectile extends Baseprojectile {
+        constructor(props) {
+            super({
+                ...props,
+                strTexture: 'images/fireballprojectile.png',
+                fltTexture: [1.0 / 8.0, 1.0],
+                fltRadius: 0.5,
+                fltSpeed: 15.0,
+                objAnimations: {
+                    'default': {
+                        intDuration: Math.round(200 / 16.666),
+                        boolLoop: true,
+                        fltDirectional: 0.0, // 1.0 / 8.0,
+                        objFrames: [
+                            { fltU: 2.0 / 8.0, fltV: 0.0 },
+                            { fltU: 7.0 / 8.0, fltV: 0.0 },
+                        ],
+                    },
+                },
+            });
+        }
+
+        collision() {
+            State.addGameobject(Fireballeffect, {
+                objPosition: this.objSceneobject.position.clone().sub(this.objDirection.clone().multiplyScalar(1.0)),
+            });
+
+            for (let objNearby of State.getGameobjectsInRange(this.objSceneobject.position, 2.0, ['player', 'enemy'])) {
+                objNearby.objGameobject.damage(10);
+            }
+        }
+    }
+
+
+    class Rocketprojectile extends Baseprojectile {
+        constructor(props) {
+            super({
+                ...props,
+                strTexture: 'images/rocketprojectile.png',
+                fltTexture: [1.0 / 8.0, 1.0 / 2.0],
+                fltRadius: 0.5,
+                fltSpeed: 50.0,
+                objAnimations: {
+                    'default': {
+                        intDuration: Math.round(100 / 16.666),
+                        boolLoop: true,
+                        fltDirectional: 0.0, // 1.0 / 8.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 0.0 / 2.0 },
+                            { fltU: 0.0, fltV: 1.0 / 2.0 },
+                        ],
+                    },
+                },
+            })
+        }
+
+        collision() {
+            State.addGameobject(Explosioneffect, {
+                objPosition: this.objSceneobject.position.clone().sub(this.objDirection.clone().multiplyScalar(1.0)),
+            });
+
+            for (let objNearby of State.getGameobjectsInRange(this.objSceneobject.position, 14.0, ['scenery', 'player', 'enemy'])) {
+                let fltInvdist = 1.0 - (objNearby.fltDistance / 14.0);
+
+                if (objNearby.objGameobject.damage !== undefined) {
+                    objNearby.objGameobject.damage(Math.floor(100.0 * fltInvdist));
+                }
+
+                if (objNearby.objGameobject.objPhysics !== null) {
+                    objNearby.objGameobject.objPhysics.applyCentralImpulse(new Ammo.btVector3(...objNearby.objGameobject.objSceneobject.position.clone().sub(this.objSceneobject.position).normalize().clone().multiplyScalar(30.0 * fltInvdist).toArray()));
+                    objNearby.objGameobject.objPhysics.activate();
+                }
+            }
+        }
+    }
+
+
+    // ##########################################################
+
+
+    class Baseanimation {
+        constructor(props) {
+            this.props = props;
+
+            this.strName = null;
+            this.intElapsed = null;
+            this.boolDone = null;
+            this.fltU = null;
+            this.fltV = null;
+            this.intWidth = null;
+            this.intHeight = null;
+        }
+
+        step() {
+            this.intElapsed += 1;
+
+            let objAnimation = this.props.objAnimations[this.strName];
+            let intFrame = Math.floor(((this.intElapsed % objAnimation.intDuration) / objAnimation.intDuration) * objAnimation.objFrames.length);
+
+            if ((objAnimation.boolLoop === false) && (this.intElapsed >= objAnimation.intDuration)) { intFrame = objAnimation.objFrames.length - 1; }
+
+            this.boolDone = objAnimation.boolLoop === false ? this.intElapsed > objAnimation.intDuration : false;
+            this.fltU = objAnimation.objFrames[intFrame].fltU;
+            this.fltV = objAnimation.objFrames[intFrame].fltV;
+            this.intWidth = objAnimation.objFrames[intFrame].intWidth;
+            this.intHeight = objAnimation.objFrames[intFrame].intHeight;
+        }
+
+        animation(strName) {
+            this.strName = strName;
+            this.intElapsed = 0;
+            this.boolDone = false;
+        }
+    }
+
+
+    class Webanimation extends Baseanimation {
+        constructor(props) {
+            super(props);
+        }
+
+        step() {
+            super.step();
+
+            this.props.objElement.style.backgroundImage = 'url("' + this.props.strTexture + '")';
+            this.props.objElement.style.backgroundPosition = (-1.0 * this.fltU) + 'px ' + (-1.0 * this.fltV) + 'px';
+            this.props.objElement.style.width = this.intWidth + 'px';
+            this.props.objElement.style.height = this.intHeight + 'px';
+            this.props.objElement.style.marginLeft = (-0.5 * this.intWidth) + 'px';
+        }
+    }
+
+
+    class Spriteanimation extends Baseanimation {
+        constructor(props) {
+            super(props);
+        }
+
+        step() {
+            super.step();
+
+            if (this.props.objAnimations[this.strName].fltDirectional === 0.0) {
+                this.props.objTexture.offset.set(this.fltU, this.fltV);
+
+            } else if (this.props.objAnimations[this.strName].fltDirectional !== 0.0) {
+                let intDirections = Math.round(1.0 / this.props.objAnimations[this.strName].fltDirectional);
+                let objDirection = State.objPlayer.objSceneobject.position.clone().sub(this.props.objParent.objSceneobject.position).normalize();
+                let fltAngle = ((Math.atan2(objDirection.x, objDirection.z) - Math.atan2(this.props.objParent.objDirection.x, this.props.objParent.objDirection.z)) * (180.0 / Math.PI));
+                let intOffset = Math.floor((Math.abs(fltAngle) + (180.0 / intDirections)) / (360.0 / intDirections));
+
+                if (fltAngle < 0.0) { intOffset = (intDirections - intOffset) % intDirections; }
+
+                this.props.objTexture.offset.set(this.fltU + (intOffset * this.props.objAnimations[this.strName].fltDirectional), this.fltV);
+
+            }
+        }
+    }
+
+
+    // ##########################################################
+
+
+    class Baseeffect extends Gameobject {
+        strType = 'effect'
+
+        constructor(props) {
+            super(props);
+
+            this.objTexture = new THREE.TextureLoader().load(this.props.strTexture);
+            this.objTexture.magFilter = THREE.NearestFilter;
+            this.objTexture.minFilter = THREE.NearestFilter;
+            this.objTexture.repeat.set(this.props.fltTexture[0], this.props.fltTexture[1]);
+
+            this.objAnimation = new Spriteanimation({ objParent: this, objAnimations: this.props.objAnimations, objTexture: this.objTexture });
+            this.objAnimation.animation('default');
+
+            this.objSceneobject = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.objTexture, rotation: this.props.boolRotate ? randomBetween(0.0, 2.0 * Math.PI) : 0.0 }));
+            this.objSceneobject.scale.set(2.0 * this.props.fltRadius, 2.0 * this.props.fltRadius);
+            this.objSceneobject.position.set(this.props.objPosition.x, this.props.objPosition.y, this.props.objPosition.z);
+
+            this.objPhysics = null;
+
+            this.register();
+        }
+
+        step() {
+            this.objAnimation.step();
+
+            if (this.objAnimation.boolDone === true) {
+                this.remove();
+            }
+        }
+    }
+
+
+    class Bloodeffect extends Baseeffect {
+        constructor(props) {
+            super({
+                ...props,
+                strTexture: 'images/bloodeffect.png',
+                fltTexture: [1.0 / 15.0, 1.0],
+                fltRadius: 0.5,
+                boolRotate: false,
+                objAnimations: {
+                    'default': {
+                        intDuration: Math.round(500 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 0.0,
+                        objFrames: [
+                            { fltU: 0.0 / 15.0, fltV: 0.0 },
+                            { fltU: 1.0 / 15.0, fltV: 0.0 },
+                            { fltU: 2.0 / 15.0, fltV: 0.0 },
+                            { fltU: 3.0 / 15.0, fltV: 0.0 },
+                            { fltU: 4.0 / 15.0, fltV: 0.0 },
+                            { fltU: 5.0 / 15.0, fltV: 0.0 },
+                            { fltU: 6.0 / 15.0, fltV: 0.0 },
+                            { fltU: 7.0 / 15.0, fltV: 0.0 },
+                            { fltU: 8.0 / 15.0, fltV: 0.0 },
+                            { fltU: 9.0 / 15.0, fltV: 0.0 },
+                            { fltU: 10.0 / 15.0, fltV: 0.0 },
+                            { fltU: 11.0 / 15.0, fltV: 0.0 },
+                            { fltU: 12.0 / 15.0, fltV: 0.0 },
+                            { fltU: 13.0 / 15.0, fltV: 0.0 },
+                        ],
+                    },
+                },
+            });
+        }
+    }
+
+
+    class Sparkseffect extends Baseeffect {
+        constructor(props) {
+            super({
+                ...props,
+                strTexture: 'images/sparkseffect.png',
+                fltTexture: [1.0, 1.0 / 12.0],
+                fltRadius: 0.75,
+                boolRotate: true,
+                objAnimations: {
+                    'default': {
+                        intDuration: Math.round(200 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 0.0,
+                        objFrames: [
+                            { fltU: 0.0, fltV: 12.0 / 12.0 },
+                            { fltU: 0.0, fltV: 10.0 / 12.0 },
+                            { fltU: 0.0, fltV: 8.0 / 12.0 },
+                            { fltU: 0.0, fltV: 6.0 / 12.0 },
+                            { fltU: 0.0, fltV: 4.0 / 12.0 },
+                            { fltU: 0.0, fltV: 2.0 / 12.0 },
+                            { fltU: 0.0, fltV: 0.0 / 12.0 },
+                        ],
+                    },
+                },
+            });
+        }
+    }
+
+
+    class Explosioneffect extends Baseeffect {
+        constructor(props) {
+            super({
+                ...props,
+                strTexture: 'images/explosioneffect.png',
+                fltTexture: [1.0 / 8.0, 1.0],
+                fltRadius: 5.0,
+                boolRotate: false,
+                objAnimations: {
+                    'default': {
+                        intDuration: Math.round(500 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 0.0,
+                        objFrames: [
+                            { fltU: 0.0 / 8.0, fltV: 0.0 },
+                            { fltU: 1.0 / 8.0, fltV: 0.0 },
+                            { fltU: 2.0 / 8.0, fltV: 0.0 },
+                            { fltU: 3.0 / 8.0, fltV: 0.0 },
+                            { fltU: 4.0 / 8.0, fltV: 0.0 },
+                            { fltU: 5.0 / 8.0, fltV: 0.0 },
+                            { fltU: 6.0 / 8.0, fltV: 0.0 },
+                        ],
+                    },
+                },
+            });
+        }
+    }
+
+
+    class Fireballeffect extends Baseeffect {
+        constructor(props) {
+            super({
+                ...props,
+                strTexture: 'images/fireballeffect.png',
+                fltTexture: [1.0 / 8.0, 1.0],
+                fltRadius: 1.0,
+                boolRotate: false,
+                objAnimations: {
+                    'default': {
+                        intDuration: Math.round(300 / 16.666),
+                        boolLoop: false,
+                        fltDirectional: 0.0,
+                        objFrames: [
+                            { fltU: 1.0 / 8.0, fltV: 0.0 },
+                            { fltU: 2.0 / 8.0, fltV: 0.0 },
+                            { fltU: 3.0 / 8.0, fltV: 0.0 },
+                            { fltU: 4.0 / 8.0, fltV: 0.0 },
+                            { fltU: 5.0 / 8.0, fltV: 0.0 },
+                            { fltU: 6.0 / 8.0, fltV: 0.0 },
+                        ],
+                    },
+                },
+            });
+        }
+    }
+
+
+    // ##########################################################
+
+
+    class State {
+        static init() {
+            this.fltAspect = document.getElementById('game').clientWidth / document.getElementById('game').clientHeight;
+
+            this.objCamera = new THREE.PerspectiveCamera(60.0, this.fltAspect, 0.1, 1000.0);
+            this.objCamera.position.set(0.0, 1.5, 0.0);
+            this.objCamera.rotation.order = 'ZYX';
+
+            this.objRenderer = new THREE.WebGLRenderer({ alpha: false, canvas: document.getElementById('canvas') });
+            this.objRenderer.setSize(document.getElementById('game').clientWidth / 4.0, document.getElementById('game').clientHeight / 4.0);
+
+            this.objScene = new THREE.Scene();
+            this.objScene.add(new THREE.AmbientLight(0x404040, 2.0));
+            this.objScene.background = new THREE.CubeTextureLoader().setPath('images/' + randomChoice(['sunset', 'exosystem', 'heaven', 'interstellar', 'storm', 'yellow']) + '-').load(['posx.jpg', 'negx.jpg', 'posy.jpg', 'negy.jpg', 'posz.jpg', 'negz.jpg']);
+            this.objScene.background.magFilter = THREE.NearestFilter;
+            this.objScene.background.minFilter = THREE.NearestMipMapLinearFilter;
+
+            this.objAmmocollider = new Ammo.btDefaultCollisionConfiguration();
+            this.objAmmodispatcher = new Ammo.btCollisionDispatcher(this.objAmmocollider);
+            this.objAmmobroadphase = new Ammo.btDbvtBroadphase();
+            this.objAmmosolver = new Ammo.btSequentialImpulseConstraintSolver();
+            this.objAmmotransform = new Ammo.btTransform();
+            this.objAmmoworld = new Ammo.btDiscreteDynamicsWorld(this.objAmmodispatcher, this.objAmmobroadphase, this.objAmmosolver, this.objAmmocollider);
+            this.objAmmoworld.setGravity(new Ammo.btVector3(0.0, -30.0, 0.0));
+
+            this.objGameobjects = [];
+
+            this.funcGameloop = this.stepGameloop.bind(this);
+        }
+
+        static startGameloop() {
+            this.objRoom = this.addGameobject(Firstroom, {
+                objFrom: null,
+                strTo: 'front',
+                intRotation: 0,
+            });
+
+            this.objPlayer = this.addGameobject(Player, {});
+
+            this.stepGameloop();
+        }
+
+        static stopGameloop() {
+            cancelAnimationFrame(this.objGameloop);
+        }
+
+        static stepGameloop() {
+            if ((this.objRoom.objTo === null) || (this.objRoom.contains(this.objPlayer.objSceneobject.position) === false)) {
+                for (let objGameobject of this.objGameobjects) {
+                    if (objGameobject.props.strRoom !== undefined) {
+                        if (objGameobject.contains(this.objPlayer.objSceneobject.position) === true) {
+                            this.objRoom = objGameobject; break;
+                        }
+                    }
+                }
+
+                {
+                    let objCurrent = this.objRoom;
+
+                    for (let intNext = 0; intNext < 5; intNext += 1) {
+                        if (objCurrent.objTo !== null) {
+                            objCurrent = objCurrent.objTo;
+
+                        } else if (objCurrent.objTo === null) {
+                            let objRoom = weightedChoice([
+                                { fltWeight: 0.4, value: Bigroom },
+                                { fltWeight: 0.3, value: Smallroom },
+                                { fltWeight: 0.3, value: Openroom },
+                            ]);
+
+                            let intRotation = objCurrent.props.intRotation;
+
+                            if (objCurrent.strTo === 'left') { intRotation += 1; }
+                            if (objCurrent.strTo === 'right') { intRotation -= 1; }
+
+                            let objNew = this.addGameobject(objRoom, {
+                                objFrom: objCurrent,
+                                strTo: randomChoice(['front', intRotation !== 1 ? 'left' : 'front', intRotation !== -1 ? 'right' : 'front']),
+                                intRotation: intRotation,
+                            });
+
+                            objCurrent = objNew;
+
+                        }
+                    }
+                }
+
+                {
+                    let objCurrent = this.objRoom;
+
+                    for (let intPrevious = 0; intPrevious < 5; intPrevious += 1) {
+                        if (objCurrent !== null) {
+                            objCurrent = objCurrent.objFrom;
+                        }
+                    }
+
+                    if (objCurrent !== null) {
+                        objCurrent.remove();
+                    }
+                }
+            }
+
+            for (let objGameobject of this.objGameobjects) {
+                if (objGameobject.step !== undefined) {
+                    objGameobject.step();
+                }
+            }
+
+            this.objAmmoworld.stepSimulation(1.0 / 60.0, 4);
+
+            for (let objGameobject of this.objGameobjects) {
+                if (objGameobject.objPhysics !== null) {
+                    objGameobject.objPhysics.getMotionState().getWorldTransform(this.objAmmotransform);
+
+                    let objPosition = this.objAmmotransform.getOrigin();
+                    let objQuaternion = this.objAmmotransform.getRotation();
+
+                    objGameobject.objSceneobject.position.set(objPosition.x(), objPosition.y(), objPosition.z());
+                    objGameobject.objSceneobject.quaternion.set(objQuaternion.x(), objQuaternion.y(), objQuaternion.z(), objQuaternion.w());
+                }
+            }
+
+            this.objRenderer.render(this.objScene, this.objCamera);
+
+            if (this.objPlayer.intHealth === 0) {
+                this.objCamera.position.y = Math.max(this.objCamera.position.y - (0.005 * 16.666), -1.0);
+                this.objCamera.rotation.x = Math.max(this.objCamera.rotation.x - (0.001 * 16.666), -0.2 * Math.PI);
+
+                if (this.objCamera.position.y === -1.0) {
+                    this.objPlayer.boolRespawnable = true;
+                }
+
+                if (this.objPlayer.boolRespawn === true) {
+                    this.objCamera.position.y = 1.5;
+                    this.objCamera.rotation.x = 0.0;
+
+                    for (let objGameobject of this.objGameobjects) {
+                        if (objGameobject.strType === 'projectile') {
+                            objGameobject.remove();
+                        }
+                    }
+
+                    for (let objNearby of this.getGameobjectsInRange(this.objPlayer.objSceneobject.position, 90.0, ['enemy'])) {
+                        objNearby.objGameobject.remove();
+                    }
+
+                    this.objPlayer.respawn();
+                }
+            }
+
+            this.objGameloop = requestAnimationFrame(this.funcGameloop);
+        }
+
+        static addGameobject(strGameobject, objProps) {
+            let objGameobject = new strGameobject(objProps);
+
+            this.objGameobjects.push(objGameobject);
+
+            return objGameobject;
+        }
+
+        static getGameobjectsInRange(objPosition, fltRange, strOnlytypes=null) {
+            let objGameobjects = [];
+
+            for (let objGameobject of this.objGameobjects) {
+                let fltSqdist = objGameobject.objSceneobject.position.distanceToSquared(objPosition);
+
+                if (fltSqdist > fltRange * fltRange) { continue; }
+                if ((strOnlytypes !== null) && (strOnlytypes.includes(objGameobject.strType) === false)) { continue; }
+
+                objGameobjects.push({
+                    objGameobject: objGameobject,
+                    fltDistance: Math.sqrt(fltSqdist)
+                });
+            }
+
+            return objGameobjects;
+        }
+
+        static getGameobjectInRay(objRaycast, strIgnoretypes=null, boolIgnoredead=false, strOnlytypes=null) {
+            let objResults = objRaycast.intersectObjects(this.objScene.children, true).filter((objResult) => {
+                if ((strIgnoretypes !== null) && (strIgnoretypes.includes(objResult.object.objGameobject.strType) === true)) { return false; }
+                if ((boolIgnoredead === true) && (objResult.object.objGameobject.intHealth === 0)) { return false; }
+
+                return true;
+            });
+
+            if (objResults.length === 0) { return null; }
+            if ((strOnlytypes !== null) && (strOnlytypes.includes(objResults[0].object.objGameobject.strType) === false)) { return null; }
+
+            return {
+                objGameobject: objResults[0].object.objGameobject,
+                objPoint: objResults[0].point,
+            }
+        }
+    }
+
+
+    // ##########################################################
+
+
+    let boolPointerlocked = false;
+
+    document.getElementById('game').addEventListener('click', function() {
+        if (boolPointerlocked === false) {
+            document.getElementById('game').requestPointerLock();
+        }
+
+        if ((State.objPlayer.intHealth === 0) && (State.objPlayer.boolRespawnable === true)) {
+            State.objPlayer.boolRespawn = true;
+        }
+    });
+
+    document.getElementById('game').addEventListener('mousedown', function() {
+        if ((boolPointerlocked === true) && (State.objPlayer.intHealth !== 0)) {
+            State.objPlayer.boolAttack = true;
+        }
+    });
+
+    document.getElementById('game').addEventListener('mouseup', function() {
+        if ((boolPointerlocked === true) && (State.objPlayer.intHealth !== 0)) {
+            State.objPlayer.boolAttack = false;
+        }
+    });
+
+    document.getElementById('game').addEventListener('mousemove', function(objEvent) {
+        if ((boolPointerlocked === true) && (State.objPlayer.intHealth !== 0)) {
+            State.objCamera.rotation.y -= objEvent.movementX * 0.005;
+            State.objCamera.rotation.x -= objEvent.movementY * 0.005 * State.fltAspect;
+
+            State.objCamera.rotation.x = Math.min(State.objCamera.rotation.x, 0.5 * Math.PI);
+            State.objCamera.rotation.x = Math.max(State.objCamera.rotation.x, -0.5 * Math.PI);
+        }
+    });
+
+    document.addEventListener('pointerlockchange', function() {
+        boolPointerlocked = document.pointerLockElement !== null;
+    });
+
+    document.addEventListener('keydown', function(objEvent) {
+        if ((boolPointerlocked === true) && (State.objPlayer.intHealth !== 0)) {
+            if (objEvent.keyCode === 87) { State.objPlayer.boolForward = true; }
+            if (objEvent.keyCode === 83) { State.objPlayer.boolBackward = true; }
+            if (objEvent.keyCode === 65) { State.objPlayer.boolLeft = true; }
+            if (objEvent.keyCode === 68) { State.objPlayer.boolRight = true; }
+            if (objEvent.keyCode === 49) { State.objPlayer.weapon(0); }
+            if (objEvent.keyCode === 50) { State.objPlayer.weapon(1); }
+            if (objEvent.keyCode === 51) { State.objPlayer.weapon(2); }
+            if (objEvent.keyCode === 32) { objEvent.preventDefault(); }
+        }
+    });
+
+    document.addEventListener('keyup', function(objEvent) {
+        if ((boolPointerlocked === true) && (State.objPlayer.intHealth !== 0)) {
+            if (objEvent.keyCode === 87) { State.objPlayer.boolForward = false; }
+            if (objEvent.keyCode === 83) { State.objPlayer.boolBackward = false; }
+            if (objEvent.keyCode === 65) { State.objPlayer.boolLeft = false; }
+            if (objEvent.keyCode === 68) { State.objPlayer.boolRight = false; }
+        }
+    });
+
+
+    // ##########################################################
+
+
+    jQuery.ajax({
+        'async': true,
+        'type': 'GET',
+        'url': 'main.json',
+        'dataType': 'json',
+        'success': function(objData) {
+            window.objPapers = objData;
+
+            Ammo().then(function(Ammo) {
+                State.init(); State.startGameloop();
+            });
+        }
+    });
+</script>
+
+<!-- ########################################################## -->
+
+	</body>
+</html>
