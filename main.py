@@ -6,7 +6,7 @@ import json
 import math
 import numpy
 import os
-import pdf2image # sudo apt-get install poppler-utils
+import pdf2image # sudo apt-get install -y poppler-utils
 import tqdm
 import urllib
 import urllib.request
@@ -168,7 +168,7 @@ if __name__ == '__main__':
                 'strTitle': str(' ').join([strChunk.strip() for strChunk in objPaper.title.split('\n')]),
                 'strAuthors': str(', ').join([objAuthor.name for objAuthor in objPaper.authors]),
                 'strSummary': str(' ').join([strChunk.strip() for strChunk in objPaper.summary.split('\n')]),
-                'strPdf': [objLink.href for objLink in objPaper.links if 'title' in objLink.keys() and objLink.title == 'pdf'][0]
+                'strPdf': [objLink.href for objLink in objPaper.links if 'title' in objLink and objLink.title == 'pdf'][0]
             }
 
             if os.path.exists(os.path.dirname(os.path.abspath(__file__)) + '/papers/' + objMeta['strIdent'] + '.json') == False:
