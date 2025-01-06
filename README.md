@@ -1,7 +1,7 @@
 # arxiv-doom
 This is a parody of the ever-increasing number of papers that appear on arXiv every day, it allows you to fight the one hundred most-recent papers in the cs.CV category. It is based on an [engine](https://github.com/tomduggan85/fps-engine) from Tom Duggan, please see below for acknowledgements on where the graphics for this game were obtained from.
 
-<p align="center"><a href="https://sniklaus.com/arxivdoom" rel="Paper"><img src="https://content.sniklaus.com/arxivdoom/screenshot.png" alt="Screenshot"></a></p>
+<p align="center"><a href="https://sniklaus.com/arxivdoom"><img src="https://content.sniklaus.com/arxivdoom/screenshot.png" alt="Screenshot"></a></p>
 
 For a live demo, please see: https://sniklaus.com/arxivdoom
 
