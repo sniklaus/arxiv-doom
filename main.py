@@ -156,8 +156,8 @@ if __name__ == '__main__':
     ]
 
     objPapers = []
-    objPapers += feedparser.parse('http://export.arxiv.org/api/query?id_list=' + str(',').join(strMine)).entries
-    objPapers += feedparser.parse('http://export.arxiv.org/api/query?search_query=cat:cs.CV&start=0&max_results=100&sortBy=lastUpdatedDate&sortOrder=descending').entries
+    objPapers += feedparser.parse('https://export.arxiv.org/api/query?id_list=' + str(',').join(strMine)).entries
+    objPapers += feedparser.parse('https://export.arxiv.org/api/query?search_query=cat:cs.CV&start=0&max_results=100&sortBy=lastUpdatedDate&sortOrder=descending').entries
 
     objExpose = []
 
@@ -187,8 +187,14 @@ if __name__ == '__main__':
             pass
         # end
     # end
-# end
 
-with open(os.path.dirname(os.path.abspath(__file__)) + '/main.json', 'w') as objFile:
-    objFile.write(json.dumps(objExpose))
+    if len(objExpose) == 0:
+        with open(os.path.dirname(os.path.abspath(__file__)) + '/main.default', 'r') as objFile:
+            objExpose = json.loads(objFile.read())
+        # end
+    # end
+
+    with open(os.path.dirname(os.path.abspath(__file__)) + '/main.json', 'w') as objFile:
+        objFile.write(json.dumps(objExpose))
+    # end
 # end

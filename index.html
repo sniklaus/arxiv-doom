@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
         
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=0" />
 
         <link rel="stylesheet" type="text/css" href="http://content.sniklaus.com/content.css">
         <script type="text/javascript" src="http://content.sniklaus.com/content.js"></script>
@@ -2340,7 +2340,7 @@
         }
 
         static stopGameloop() {
-            cancelAnimationFrame(this.objGameloop);
+            cancelTimeout(this.objGameloop); // cancelAnimationFrame(this.objGameloop);
         }
 
         static stepGameloop() {
@@ -2447,7 +2447,7 @@
                 }
             }
 
-            this.objGameloop = requestAnimationFrame(this.funcGameloop);
+            this.objGameloop = setTimeout(this.funcGameloop, 1000.0 / 60.0); // requestAnimationFrame(this.funcGameloop);
         }
 
         static addGameobject(strGameobject, objProps) {
